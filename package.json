@@ -1,0 +1,26 @@
+{
+  "name": "scratch-2026-10-01-d7d0c3",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dompurify": "^3.4.16",
+    "firebase": "^12.19.0",
+    "marked": "^18.0.14",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2"
+  },
+  "devDependencies": {
+    "vite": "^8.3.2"
+  }
+}

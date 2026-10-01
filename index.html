@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<script>
+  // 先於畫面渲染套用已存的主題，避免閃爍；沒存過就跟隨系統
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<title>泰語字卡</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>泰語字卡</h1>
+  <div class="hdr-right">
+    <button id="themeBtn" title="切換淺色／深色"></button>
+    <div id="authBox"></div>
+  </div>
+</header>
+
+<main id="app" hidden>
+  <div class="toolbar">
+    <input id="search" placeholder="搜尋泰文 / 拼音 / 英文…">
+    <button id="editBtn" disabled>編輯</button>
+    <button id="delBtn" disabled>刪除</button>
+    <button id="addBtn">＋ 新增</button>
+  </div>
+  <div class="tabs" id="tabs">
+    <input type="checkbox" id="selAll" title="全選（目前列表）">
+    <button data-type="all" class="on">全部</button>
+    <button data-type="word">單字</button>
+    <button data-type="sentence">句子</button>
+  </div>
+  <div id="cards"></div>
+</main>
+
+<p id="loginHint">請先以 Google 登入。</p>
+
+<dialog id="dlg">
+  <form id="form" method="dialog">
+    <h2 id="dlgTitle">新增字卡</h2>
+    <label>分類
+      <select id="fType"><option value="word">單字</option><option value="sentence">句子</option></select>
+    </label>
+    <label>泰文 <input id="fThai" required lang="th"></label>
+    <label>羅馬拼音 <input id="fRoman"></label>
+    <label>英文 <input id="fEnglish"></label>
+    <label>詳細說明（支援 Markdown，可直接貼 AI 回答）
+      <textarea id="fDetail" rows="10"></textarea>
+    </label>
+    <div class="row">
+      <button type="button" id="cancelBtn">取消</button>
+      <button type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
