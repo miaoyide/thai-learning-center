@@ -7,6 +7,8 @@ import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signO
 import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp }
   from "firebase/firestore";
 import { firebaseConfig } from "./firebase-config.js";
+import { buildCues, cuesToTranscript, extractVideoId } from "./subtitles.js";
+import { mountVideo } from "./video.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -14,8 +16,10 @@ const db = getFirestore(app);
 const $ = (id) => document.getElementById(id);
 
 let cards = [];
+let videos = [];
 let editingId = null;
-let unsub = null;
+let editingVideoId = null;
+let unsubs = [];
 
 /* ---------- 主題 ---------- */
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
@@ -39,14 +43,23 @@ onAuthStateChanged(auth, (user) => {
     : `<button id="inBtn">Google 登入</button>`;
   if (user) {
     $("outBtn").onclick = () => signOut(auth);
-    unsub = onSnapshot(query(collection(db, "cards"), orderBy("createdAt", "desc")), (snap) => {
-      cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      render();
-    }, (e) => alert("讀取失敗：" + e.message));
+    unsubs = [
+      onSnapshot(query(collection(db, "cards"), orderBy("createdAt", "desc")), (snap) => {
+        cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        render();
+      }, (e) => alert("讀取失敗：" + e.message)),
+      onSnapshot(query(collection(db, "videos"), orderBy("createdAt", "desc")), (snap) => {
+        videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        render();
+      }, (e) => console.warn("影片讀取失敗（Firestore 規則是否已加入 videos？）", e)),
+    ];
   } else {
     $("inBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
-    if (unsub) unsub();
+    unsubs.forEach((u) => u());
+    unsubs = [];
     cards = [];
+    videos = [];
+    closeVideo();
   }
 });
 
@@ -72,6 +85,7 @@ const svg = (d) => `<svg class="ico" viewBox="0 0 24 24" width="1em" height="1em
 const ICON = {
   play: svg('<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>'),
   edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
   del: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>'),
 };
 
@@ -82,6 +96,8 @@ const typeOf = (c) => c.type || "sentence"; // 舊資料沒有分類時視為句
 $("tabs").onclick = (e) => {
   const b = e.target.closest("button[data-type]");
   if (!b) return;
+  // 影片與字卡是不同集合，切換時清掉勾選，避免誤刪
+  if ((b.dataset.type === "video") !== (typeFilter === "video")) selected.clear();
   typeFilter = b.dataset.type;
   document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
   render();
@@ -99,9 +115,24 @@ function updateBar() {
   $("selAll").indeterminate = n > 0 && n < visible.length;
 }
 
+function renderVideos(q) {
+  const list = visible = videos.filter((v) => !q || (v.title || "").toLowerCase().includes(q));
+  $("cards").innerHTML = list.map((v) => `
+    <div class="card" data-id="${v.id}">
+      <div class="vline">
+        <input type="checkbox" class="sel" ${selected.has(v.id) ? "checked" : ""}>
+        <div class="vname">${esc(v.title || v.videoId)}</div>
+        <div class="english">${v.cues?.length ?? 0} 句</div>
+      </div>
+    </div>`).join("") || "<p>還沒有影片。</p>";
+  updateBar();
+}
+
 function render() {
-  for (const id of [...selected]) if (!cards.some((c) => c.id === id)) selected.delete(id);
+  const pool = typeFilter === "video" ? videos : cards;
+  for (const id of [...selected]) if (!pool.some((c) => c.id === id)) selected.delete(id);
   const q = $("search").value.trim().toLowerCase();
+  if (typeFilter === "video") return renderVideos(q);
   const list = visible = cards.filter((c) =>
     (typeFilter === "all" || typeOf(c) === typeFilter) &&
     (!q || [c.thai, c.roman, c.english].join(" ").toLowerCase().includes(q)));
@@ -131,15 +162,22 @@ $("selAll").onchange = (e) => {
   render();
 };
 $("editBtn").onclick = () => {
+  if (typeFilter === "video") {
+    const v = videos.find((x) => selected.has(x.id));
+    if (v) openVideoDlg(v);
+    return;
+  }
   const c = cards.find((x) => selected.has(x.id));
   if (c) openDlg(c);
 };
 $("delBtn").onclick = async () => {
-  const items = cards.filter((c) => selected.has(c.id));
+  const isVideo = typeFilter === "video";
+  const items = (isVideo ? videos : cards).filter((c) => selected.has(c.id));
   if (!items.length) return;
-  const label = items.length === 1 ? `「${items[0].thai}」` : `${items.length} 張字卡`;
+  const name = (x) => (isVideo ? x.title || x.videoId : x.thai);
+  const label = items.length === 1 ? `「${name(items[0])}」` : `${items.length} ${isVideo ? "部影片" : "張字卡"}`;
   if (!confirm(`刪除${label}？`)) return;
-  await Promise.all(items.map((c) => deleteDoc(doc(db, "cards", c.id))));
+  await Promise.all(items.map((c) => deleteDoc(doc(db, isVideo ? "videos" : "cards", c.id))));
   selected.clear();
 };
 
@@ -151,6 +189,7 @@ $("cards").onclick = async (e) => {
     updateBar();
     return;
   }
+  if (typeFilter === "video") return openVideo(videos.find((v) => v.id === el.dataset.id));
   const btn = e.target.closest("button[data-act]");
   // 點卡片（非按鈕）切換說明；選取文字或點說明內的連結/內容時不切換
   if (!btn) {
@@ -188,7 +227,75 @@ $("fDetail").addEventListener("paste", (e) => {
   t.setRangeText(markdown, t.selectionStart, t.selectionEnd, "end");
 });
 
-$("addBtn").onclick = () => openDlg();
+$("addBtn").onclick = () => (typeFilter === "video" ? openVideoDlg() : openDlg());
+
+/* ---------- 影片 ---------- */
+let unmountVideo = null;
+const browseEls = () => [document.querySelector(".toolbar"), $("tabs"), $("cards")];
+
+function openVideo(v) {
+  if (!v) return;
+  closeVideo();
+  browseEls().forEach((el) => (el.hidden = true));
+  $("player").hidden = false;
+  unmountVideo = mountVideo($("player"), v, {
+    esc, ICON, onBack: closeVideo,
+    addCard: (c) => addDoc(collection(db, "cards"), {
+      type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", createdAt: serverTimestamp(),
+    }),
+  });
+}
+function closeVideo() {
+  if (unmountVideo) unmountVideo();
+  unmountVideo = null;
+  $("player").hidden = true;
+  browseEls().forEach((el) => (el.hidden = false));
+}
+
+function openVideoDlg(v) {
+  editingVideoId = v?.id ?? null;
+  $("vdlgTitle").textContent = v ? "編輯影片" : "新增影片";
+  $("vUrl").value = v?.url ?? "";
+  $("vTitle").value = v?.title ?? "";
+  $("vThai").value = v ? cuesToTranscript(v.cues) : "";
+  // 部分句子沒有譯文時用 "-" 佔位，才不會因為空行被略過而錯位（buildCues 會把 "-" 還原成空白）
+  const col = (k) => (v?.cues.some((c) => c[k]) ? v.cues.map((c) => c[k] || "-").join("\n") : "");
+  $("vEnglish").value = col("english");
+  $("vRoman").value = col("roman");
+  $("vdlg").showModal();
+}
+$("vCancel").onclick = () => $("vdlg").close();
+
+async function fetchTitle(url) {
+  try {
+    const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`);
+    return r.ok ? (await r.json()).title : "";
+  } catch { return ""; }
+}
+
+$("vform").onsubmit = async (e) => {
+  e.preventDefault();
+  const url = $("vUrl").value.trim();
+  const videoId = extractVideoId(url);
+  if (!videoId) return alert("無法辨識 YouTube 連結");
+  const { cues, warnings } = buildCues($("vThai").value, $("vRoman").value, $("vEnglish").value);
+  if (!cues.length) return alert("沒有解析到任何泰文字幕，請確認格式（時間 + 文字）");
+  if (warnings.length && !confirm(`${warnings.join("；")}\n仍要儲存嗎？多的行會被忽略，不足的會留空。`)) return;
+  if (JSON.stringify(cues).length > 900000) return alert("字幕太長，超過 Firestore 單筆文件上限，請分段新增");
+  const btn = e.submitter;
+  btn.disabled = true;
+  try {
+    const title = $("vTitle").value.trim() || (await fetchTitle(url)) || videoId;
+    const data = { title, url, videoId, cues };
+    if (editingVideoId) await updateDoc(doc(db, "videos", editingVideoId), data);
+    else await addDoc(collection(db, "videos"), { ...data, createdAt: serverTimestamp() });
+    $("vdlg").close();
+  } catch (err) {
+    alert("儲存失敗：" + err.message + "\n（若是 permission-denied，請在 Firestore 規則加入 videos）");
+  } finally {
+    btn.disabled = false;
+  }
+};
 $("cancelBtn").onclick = () => $("dlg").close();
 
 $("form").onsubmit = async () => {

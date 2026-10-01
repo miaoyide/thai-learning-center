@@ -85,3 +85,21 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 
 .hdr-right { display:flex; align-items:center; gap:8px; }
 
+
+/* 影片 */
+.vline { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:4px 14px; }
+.vname { font-weight:600; }
+.vhead { display:flex; align-items:center; gap:12px; padding:8px 0; }
+.vtitle { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vplayer { position:sticky; top:0; z-index:5; background:var(--bg); padding-bottom:8px; }
+.vplayer iframe { display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:10px; background:#000; }
+.cues { border-top:1px solid var(--border); }
+.cue { display:grid; grid-template-columns:3.2em minmax(0,1fr) auto; gap:4px 12px; align-items:start; padding:10px 15px; border-bottom:1px solid var(--border); cursor:pointer; scroll-margin-top:calc(min(56.25vw, 488px) + 70px); }
+.cue:hover { background:var(--hover); }
+.cue.on { background:var(--detail-bg); box-shadow:inset 3px 0 0 var(--accent); }
+.ctime { color:var(--muted); font-size:.8rem; padding-top:.45em; font-variant-numeric:tabular-nums; }
+.cbtns { display:flex; gap:2px; }
+.cue .thai { font-size:1.15rem; }
+
+[hidden] { display:none !important; }
+

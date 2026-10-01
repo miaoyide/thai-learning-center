@@ -32,8 +32,10 @@
     <button data-type="all" class="on">全部</button>
     <button data-type="word">單字</button>
     <button data-type="sentence">句子</button>
+    <button data-type="video">影片</button>
   </div>
   <div id="cards"></div>
+  <div id="player" hidden></div>
 </main>
 
 <p id="loginHint">請先以 Google 登入。</p>
@@ -52,6 +54,27 @@
     </label>
     <div class="row">
       <button type="button" id="cancelBtn">取消</button>
+      <button type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="vdlg">
+  <form id="vform" method="dialog">
+    <h2 id="vdlgTitle">新增影片</h2>
+    <label>YouTube 連結 <input id="vUrl" required placeholder="https://www.youtube.com/watch?v=..."></label>
+    <label>標題（可留空，會自動抓取） <input id="vTitle"></label>
+    <label>泰文字幕（YouTube「顯示轉錄稿」複製，或 .srt / .vtt 內容）
+      <textarea id="vThai" rows="8" required lang="th" placeholder="0:12&#10;สวัสดีครับ&#10;0:15&#10;ขอยืมเงินหน่อย"></textarea>
+    </label>
+    <label>英文翻譯（選填，一行對應一句泰文）
+      <textarea id="vEnglish" rows="5"></textarea>
+    </label>
+    <label>羅馬拼音（選填，一行對應一句泰文）
+      <textarea id="vRoman" rows="5"></textarea>
+    </label>
+    <div class="row">
+      <button type="button" id="vCancel">取消</button>
       <button type="submit">儲存</button>
     </div>
   </form>
