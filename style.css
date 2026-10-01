@@ -1,6 +1,6 @@
-﻿:root { --bg:#e5e5e5; --card:#f0f0f0; --fg:#2a2a2a; --muted:#5e5e5e; --accent:#3566c9; --border:#cbcbcb; --detail-bg:#dbdbdb; --code-bg:#cecece; --roman:#2f6b3a; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#16181c; --card:#20232a; --fg:#e8e8e8; --muted:#999; --accent:#6c9cff; --border:#33373f; --detail-bg:#1e1f20; --code-bg:#2d2f31; --roman:#7bc67e; } }
-:root[data-theme="dark"] { --bg:#16181c; --card:#20232a; --fg:#e8e8e8; --muted:#999; --accent:#6c9cff; --border:#33373f; --detail-bg:#1e1f20; --code-bg:#2d2f31; --roman:#7bc67e; }
+﻿:root { --bg:#e5e5e5; --card:#f0f0f0; --fg:#2a2a2a; --muted:#5e5e5e; --accent:#3566c9; --border:#cbcbcb; --detail-bg:#dbdbdb; --code-bg:#cecece; --roman:#2f6b3a; --hover:#f2f2f2; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#16181c; --card:#20232a; --fg:#e8e8e8; --muted:#999; --accent:#6c9cff; --border:#33373f; --detail-bg:#1e1f20; --code-bg:#2d2f31; --roman:#7bc67e; --hover:#20232a; } }
+:root[data-theme="dark"] { --bg:#16181c; --card:#20232a; --fg:#e8e8e8; --muted:#999; --accent:#6c9cff; --border:#33373f; --detail-bg:#1e1f20; --code-bg:#2d2f31; --roman:#7bc67e; --hover:#20232a; }
 :root { color-scheme: light dark; }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
@@ -52,8 +52,8 @@ dialog input, dialog textarea { margin-top:4px; color:var(--fg); }
 /* 列表式版面：播放 | 泰文/拼音 | 英文 | 標籤+編輯刪除 */
 main { max-width:900px; }
 #cards { border-top:1px solid var(--border); }
-.card { border-bottom:1px solid var(--border); padding:10px 4px; cursor:pointer; }
-.card:hover { background:var(--card); }
+.card { border-bottom:1px solid var(--border); padding:10px 15px; cursor:pointer; }
+.card:hover { background:var(--hover); }
 .line { display:grid; grid-template-columns:auto auto minmax(0,1.3fr) minmax(0,1fr) auto; align-items:center; gap:4px 14px; }
 .thai { font-size:1.25rem; font-weight:600; line-height:1.4; }
 .roman { color:var(--roman); }
@@ -84,3 +84,4 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 
 
 .hdr-right { display:flex; align-items:center; gap:8px; }
+
