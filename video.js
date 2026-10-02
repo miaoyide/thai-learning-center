@@ -62,6 +62,11 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack }) {
       try { await addCard(c); btn.textContent = "✓"; } catch (err) { btn.disabled = false; alert("加入失敗：" + err.message); }
       return;
     }
+    // 遮罩模式：點被遮住的文字只顯示答案，不跳轉
+    if (document.body.classList.contains("mask") && !el.classList.contains("reveal") && !btn && e.target.closest(".cwords")) {
+      el.classList.add("reveal");
+      return;
+    }
     if (getSelection().toString()) return;
     segEnd = btn?.dataset.act === "seg" ? c.end : null;
     seek(c.start);

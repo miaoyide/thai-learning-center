@@ -15,6 +15,7 @@
 <header>
   <h1>泰語字卡</h1>
   <div class="hdr-right">
+    <button id="maskBtn" title="遮罩：隱藏泰文與拼音，點一下顯示答案">遮罩</button>
     <button id="themeBtn" title="切換淺色／深色"></button>
     <div id="authBox"></div>
   </div>
@@ -34,11 +35,14 @@
     <button data-type="sentence">句子</button>
     <button data-type="video">影片</button>
   </div>
+  <div class="tagbar" id="tagbar" hidden></div>
   <div id="cards"></div>
   <div id="player" hidden></div>
 </main>
 
 <p id="loginHint">請先以 Google 登入。</p>
+
+<datalist id="tagList"></datalist>
 
 <dialog id="dlg">
   <form id="form" method="dialog">
@@ -49,6 +53,9 @@
     <label>泰文 <input id="fThai" required lang="th"></label>
     <label>羅馬拼音 <input id="fRoman"></label>
     <label>英文 <input id="fEnglish"></label>
+    <label>標籤（情境，輸入後按 Enter，可多個）
+      <div class="taginput" id="fTags"><input list="tagList" placeholder="例如：餐廳"></div>
+    </label>
     <label>詳細說明（支援 Markdown，可直接貼 AI 回答）
       <textarea id="fDetail" rows="10"></textarea>
     </label>
@@ -64,6 +71,9 @@
     <h2 id="vdlgTitle">新增影片</h2>
     <label>YouTube 連結 <input id="vUrl" required placeholder="https://www.youtube.com/watch?v=..."></label>
     <label>標題（可留空，會自動抓取） <input id="vTitle"></label>
+    <label>標籤（情境，輸入後按 Enter，可多個）
+      <div class="taginput" id="vTags"><input list="tagList" placeholder="例如：旅遊"></div>
+    </label>
     <label>泰文字幕（YouTube「顯示轉錄稿」複製，或 .srt / .vtt 內容）
       <textarea id="vThai" rows="8" required lang="th" placeholder="0:12&#10;สวัสดีครับ&#10;0:15&#10;ขอยืมเงินหน่อย"></textarea>
     </label>

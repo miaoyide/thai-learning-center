@@ -103,3 +103,25 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 
 [hidden] { display:none !important; }
 
+
+/* 標籤 */
+.tagbar { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+.tagbtn { padding:2px 10px; border-radius:14px; font-size:.85rem; }
+.tagbtn span { color:var(--muted); font-size:.75rem; margin-left:2px; }
+.tagbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.tagbtn.on span { color:#fff; opacity:.8; }
+.tag { font-size:.75rem; color:var(--accent); background:var(--detail-bg); border-radius:10px; padding:1px 8px; margin-right:4px; white-space:nowrap; }
+.meta { flex-wrap:wrap; justify-content:flex-end; }
+.taginput { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:4px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; background:var(--card); }
+.taginput input { flex:1; min-width:6em; border:none; padding:4px; background:none; outline:none; margin:0; }
+.chip { display:inline-flex; align-items:center; gap:2px; font-size:.85rem; color:var(--accent); background:var(--detail-bg); border-radius:10px; padding:1px 4px 1px 8px; }
+.chip button { border:none; background:none; padding:0 4px; color:var(--muted); line-height:1; }
+.chip button:hover { color:var(--fg); }
+
+/* 遮罩（自我測驗） */
+#maskBtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.mask .card:not(.reveal) :is(.thai, .roman), .mask .cue:not(.reveal) :is(.thai, .roman) {
+  color:transparent !important; background:var(--border); border-radius:6px; user-select:none;
+  width:fit-content; min-width:4em; text-shadow:none;
+}
+.mask .card:not(.reveal) .detail { display:none; }

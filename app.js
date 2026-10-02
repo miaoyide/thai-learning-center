@@ -19,6 +19,7 @@ let cards = [];
 let videos = [];
 let editingId = null;
 let editingVideoId = null;
+const revealed = new Set(); // 遮罩模式下已點開的字卡（重新渲染後保留）
 let unsubs = [];
 
 /* ---------- 主題 ---------- */
@@ -33,6 +34,19 @@ $("themeBtn").onclick = () => {
 };
 sysDark.addEventListener("change", syncThemeBtn);
 syncThemeBtn();
+
+/* ---------- 遮罩（自我測驗）：隱藏泰文與拼音，點一下顯示 ---------- */
+function setMask(on) {
+  document.body.classList.toggle("mask", on);
+  $("maskBtn").classList.toggle("on", on);
+  if (on) { // 每次開啟都重新蓋住全部
+    revealed.clear();
+    document.querySelectorAll(".reveal").forEach((el) => el.classList.remove("reveal"));
+  }
+  try { localStorage.setItem("mask", on ? "1" : "0"); } catch (e) {}
+}
+$("maskBtn").onclick = () => setMask(!document.body.classList.contains("mask"));
+try { setMask(localStorage.getItem("mask") === "1"); } catch (e) {}
 
 /* ---------- Auth ---------- */
 onAuthStateChanged(auth, (user) => {
@@ -97,7 +111,7 @@ $("tabs").onclick = (e) => {
   const b = e.target.closest("button[data-type]");
   if (!b) return;
   // 影片與字卡是不同集合，切換時清掉勾選，避免誤刪
-  if ((b.dataset.type === "video") !== (typeFilter === "video")) selected.clear();
+  if ((b.dataset.type === "video") !== (typeFilter === "video")) { selected.clear(); tagFilter.clear(); }
   typeFilter = b.dataset.type;
   document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
   render();
@@ -115,14 +129,80 @@ function updateBar() {
   $("selAll").indeterminate = n > 0 && n < visible.length;
 }
 
+/* ---------- 標籤（情境分類，一個項目可有多個；與 type 互相獨立） ---------- */
+const tagFilter = new Set(); // 多選時為「同時符合」
+const tagsOf = (c) => c.tags || [];
+const matchTags = (c) => [...tagFilter].every((t) => tagsOf(c).includes(t));
+const tagChips = (c) => tagsOf(c).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
+
+function renderTagBar(pool) {
+  const counts = new Map();
+  for (const c of pool) for (const t of tagsOf(c)) counts.set(t, (counts.get(t) || 0) + 1);
+  for (const t of [...tagFilter]) if (!counts.has(t)) tagFilter.delete(t); // 標籤已不存在就取消篩選
+  const all = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  $("tagbar").hidden = !all.length;
+  $("tagbar").innerHTML = all
+    .map(([t, n]) => `<button class="tagbtn${tagFilter.has(t) ? " on" : ""}" data-tag="${esc(t)}">${esc(t)} <span>${n}</span></button>`)
+    .join("");
+  $("tagList").innerHTML = all.map(([t]) => `<option value="${esc(t)}">`).join("");
+}
+$("tagbar").onclick = (e) => {
+  const b = e.target.closest("button[data-tag]");
+  if (!b) return;
+  const t = b.dataset.tag;
+  tagFilter.has(t) ? tagFilter.delete(t) : tagFilter.add(t);
+  render();
+};
+
+// 標籤輸入框：Enter 或逗號加入，Backspace 刪除最後一個，並提示已用過的標籤
+function tagInput(root) {
+  const input = root.querySelector("input");
+  let tags = [];
+  const draw = () => {
+    root.querySelectorAll(".chip").forEach((c) => c.remove());
+    for (const t of tags) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = t;
+      const x = document.createElement("button");
+      x.type = "button";
+      x.textContent = "×";
+      x.onclick = () => { tags = tags.filter((y) => y !== t); draw(); };
+      chip.append(x);
+      root.insertBefore(chip, input);
+    }
+  };
+  const add = (raw) => {
+    for (const p of raw.split(/[,，]/)) {
+      const t = p.trim().replace(/^#/, "");
+      if (t && !tags.includes(t)) tags.push(t);
+    }
+    input.value = "";
+    draw();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    if (e.key === "Enter" || e.key === "," || e.key === "，") { e.preventDefault(); add(input.value); }
+    else if (e.key === "Backspace" && !input.value && tags.length) { tags.pop(); draw(); }
+  });
+  input.addEventListener("blur", () => { if (input.value.trim()) add(input.value); });
+  return {
+    get() { if (input.value.trim()) add(input.value); return [...tags]; },
+    set(arr) { tags = [...(arr || [])]; input.value = ""; draw(); },
+  };
+}
+const cardTags = tagInput($("fTags"));
+const videoTags = tagInput($("vTags"));
+
 function renderVideos(q) {
-  const list = visible = videos.filter((v) => !q || (v.title || "").toLowerCase().includes(q));
+  const list = visible = videos.filter((v) => matchTags(v) &&
+    (!q || [v.title || "", ...tagsOf(v)].join(" ").toLowerCase().includes(q)));
   $("cards").innerHTML = list.map((v) => `
     <div class="card" data-id="${v.id}">
       <div class="vline">
         <input type="checkbox" class="sel" ${selected.has(v.id) ? "checked" : ""}>
         <div class="vname">${esc(v.title || v.videoId)}</div>
-        <div class="english">${v.cues?.length ?? 0} 句</div>
+        <div class="meta">${tagChips(v)}<span class="english">${v.cues?.length ?? 0} 句</span></div>
       </div>
     </div>`).join("") || "<p>還沒有影片。</p>";
   updateBar();
@@ -131,13 +211,14 @@ function renderVideos(q) {
 function render() {
   const pool = typeFilter === "video" ? videos : cards;
   for (const id of [...selected]) if (!pool.some((c) => c.id === id)) selected.delete(id);
+  renderTagBar(pool);
   const q = $("search").value.trim().toLowerCase();
   if (typeFilter === "video") return renderVideos(q);
   const list = visible = cards.filter((c) =>
-    (typeFilter === "all" || typeOf(c) === typeFilter) &&
-    (!q || [c.thai, c.roman, c.english].join(" ").toLowerCase().includes(q)));
+    (typeFilter === "all" || typeOf(c) === typeFilter) && matchTags(c) &&
+    (!q || [c.thai, c.roman, c.english, ...tagsOf(c)].join(" ").toLowerCase().includes(q)));
   $("cards").innerHTML = list.map((c) => `
-    <div class="card" data-id="${c.id}">
+    <div class="card${revealed.has(c.id) ? " reveal" : ""}" data-id="${c.id}">
       <div class="line">
         <input type="checkbox" class="sel" ${selected.has(c.id) ? "checked" : ""}>
         <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
@@ -148,6 +229,7 @@ function render() {
         <div class="english">${esc(c.english)}</div>
         <div class="meta">
           ${typeFilter === "all" ? `<span class="badge">${TYPE_LABEL[typeOf(c)]}</span>` : ""}
+          ${tagChips(c)}
         </div>
       </div>
       ${c.detail ? `<div class="detail" hidden>${md(c.detail)}</div>` : ""}
@@ -194,6 +276,12 @@ $("cards").onclick = async (e) => {
   // 點卡片（非按鈕）切換說明；選取文字或點說明內的連結/內容時不切換
   if (!btn) {
     if (e.target.closest(".detail") || getSelection().toString()) return;
+    // 遮罩模式：第一次點擊先顯示答案，之後才是展開／收合說明
+    if (document.body.classList.contains("mask") && !el.classList.contains("reveal")) {
+      el.classList.add("reveal");
+      revealed.add(el.dataset.id);
+      return;
+    }
     const d = el.querySelector(".detail");
     if (d) d.hidden = !d.hidden;
     return;
@@ -213,6 +301,7 @@ function openDlg(c) {
   $("fRoman").value = c?.roman ?? "";
   $("fEnglish").value = c?.english ?? "";
   $("fDetail").value = c?.detail ?? "";
+  cardTags.set(c?.tags);
   $("dlg").showModal();
 }
 // 從 AI 網頁複製時剪貼簿帶有 HTML；貼上時轉成 Markdown，標題/粗體/表格/清單才不會掉
@@ -241,7 +330,8 @@ function openVideo(v) {
   unmountVideo = mountVideo($("player"), v, {
     esc, ICON, onBack: closeVideo,
     addCard: (c) => addDoc(collection(db, "cards"), {
-      type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", createdAt: serverTimestamp(),
+      type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", tags: v.tags ?? [],
+      createdAt: serverTimestamp(),
     }),
   });
 }
@@ -256,6 +346,7 @@ function openVideoDlg(v) {
   editingVideoId = v?.id ?? null;
   $("vdlgTitle").textContent = v ? "編輯影片" : "新增影片";
   $("vUrl").value = v?.url ?? "";
+  videoTags.set(v?.tags);
   $("vTitle").value = v?.title ?? "";
   $("vThai").value = v ? cuesToTranscript(v.cues) : "";
   // 部分句子沒有譯文時用 "-" 佔位，才不會因為空行被略過而錯位（buildCues 會把 "-" 還原成空白）
@@ -286,7 +377,7 @@ $("vform").onsubmit = async (e) => {
   btn.disabled = true;
   try {
     const title = $("vTitle").value.trim() || (await fetchTitle(url)) || videoId;
-    const data = { title, url, videoId, cues };
+    const data = { title, url, videoId, cues, tags: videoTags.get() };
     if (editingVideoId) await updateDoc(doc(db, "videos", editingVideoId), data);
     else await addDoc(collection(db, "videos"), { ...data, createdAt: serverTimestamp() });
     $("vdlg").close();
@@ -305,6 +396,7 @@ $("form").onsubmit = async () => {
     roman: $("fRoman").value.trim(),
     english: $("fEnglish").value.trim(),
     detail: $("fDetail").value,
+    tags: cardTags.get(),
   };
   if (editingId) await updateDoc(doc(db, "cards", editingId), data);
   else await addDoc(collection(db, "cards"), { ...data, createdAt: serverTimestamp() });
