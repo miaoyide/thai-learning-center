@@ -382,6 +382,27 @@ $("fDetail").addEventListener("paste", (e) => {
 
 $("addBtn").onclick = () => (typeFilter === "video" ? openVideoDlg() : openDlg());
 
+/* ---------- 匯出備份（JSON） ---------- */
+$("exportBtn").onclick = () => {
+  const iso = (t) => (t?.toDate ? t.toDate().toISOString() : null);
+  const data = {
+    exportedAt: new Date().toISOString(),
+    cards: cards.map((c) => ({
+      id: c.id, type: typeOf(c), thai: c.thai ?? "", roman: c.roman ?? "", english: c.english ?? "",
+      detail: c.detail ?? "", tags: tagsOf(c), createdAt: iso(c.createdAt),
+    })),
+    videos: videos.map((v) => ({
+      id: v.id, title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
+      cues: v.cues ?? [], tags: tagsOf(v), createdAt: iso(v.createdAt),
+    })),
+  };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = `thai-cards-${data.exportedAt.slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
 /* ---------- 批次匯入 ---------- */
 const importTags = tagInput($("iTags"));
 
