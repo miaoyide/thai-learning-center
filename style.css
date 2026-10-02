@@ -117,7 +117,7 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 #maskBtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 .mask .card:not(.reveal) :is(.thai, .roman), .mask .cue:not(.reveal) :is(.thai, .roman) {
   color:transparent !important; background:var(--border); border-radius:6px; user-select:none;
-  width:fit-content; min-width:4em; text-shadow:none;
+  width:fit-content; max-width:100%; min-width:4em; text-shadow:none;
 }
 .mask .card:not(.reveal) .detail { display:none; }
 
@@ -130,3 +130,13 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 #selPop { position:fixed; z-index:50; display:flex; align-items:center; gap:8px; padding:6px 8px; background:var(--card); border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.25); max-width:min(92vw, 460px); }
 #selText { font-size:1.05rem; font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #selPop button { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; padding:4px 10px; }
+
+/* 泰文／拼音太長時單行省略，點卡片展開 */
+.words { min-width:0; }
+.card:not(.open) .words :is(.thai, .roman) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* 標籤輸入框的自訂下拉選單 */
+.taginput { position:relative; }
+.tagmenu { position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:20; max-height:220px; overflow:auto; padding:4px; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+.tagmenu .opt { padding:6px 10px; border-radius:6px; cursor:pointer; color:var(--fg); }
+.tagmenu .opt:hover, .tagmenu .opt.hi { background:var(--detail-bg); }

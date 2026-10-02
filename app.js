@@ -1,4 +1,4 @@
-import { marked } from "marked";
+﻿import { marked } from "marked";
 import DOMPurify from "dompurify";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
@@ -20,6 +20,7 @@ let videos = [];
 let editingId = null;
 let editingVideoId = null;
 const revealed = new Set(); // 遮罩模式下已點開的字卡（重新渲染後保留）
+const opened = new Set(); // 已展開的字卡（重新渲染後保留）
 let unsubs = [];
 
 /* ---------- 主題 ---------- */
@@ -130,6 +131,7 @@ function updateBar() {
 
 /* ---------- 標籤（情境分類，一個項目可有多個；與 type 互相獨立） ---------- */
 const tagFilter = new Set(); // 多選時為「同時符合」
+let knownTags = []; // 目前集合內已用過的標籤（依使用次數排序），供輸入框選單使用
 const tagsOf = (c) => c.tags || [];
 const matchTags = (c) => [...tagFilter].every((t) => tagsOf(c).includes(t));
 
@@ -142,7 +144,7 @@ function renderTagBar(pool) {
   $("tagbar").innerHTML = all
     .map(([t, n]) => `<button class="tagbtn${tagFilter.has(t) ? " on" : ""}" data-tag="${esc(t)}">${esc(t)} <span>${n}</span></button>`)
     .join("");
-  $("tagList").innerHTML = all.map(([t]) => `<option value="${esc(t)}">`).join("");
+  knownTags = all.map(([t]) => t);
 }
 $("tagbar").onclick = (e) => {
   const b = e.target.closest("button[data-tag]");
@@ -152,10 +154,17 @@ $("tagbar").onclick = (e) => {
   render();
 };
 
-// 標籤輸入框：Enter 或逗號加入，Backspace 刪除最後一個，並提示已用過的標籤
+// 標籤輸入框：自訂下拉選單（點選即加入標籤）；也可輸入後按 Enter／逗號新增，Backspace 刪除最後一個
 function tagInput(root) {
   const input = root.querySelector("input");
+  const menu = document.createElement("div");
+  menu.className = "tagmenu";
+  menu.hidden = true;
+  root.append(menu);
   let tags = [];
+  let items = [];
+  let hi = -1;
+
   const draw = () => {
     root.querySelectorAll(".chip").forEach((c) => c.remove());
     for (const t of tags) {
@@ -178,15 +187,58 @@ function tagInput(root) {
     input.value = "";
     draw();
   };
+  const hideMenu = () => { menu.hidden = true; hi = -1; };
+  const paintHi = () => menu.querySelectorAll(".opt").forEach((el, i) => el.classList.toggle("hi", i === hi));
+  const showMenu = () => {
+    const q = input.value.trim().replace(/^#/, "");
+    items = knownTags
+      .filter((t) => !tags.includes(t) && t.toLowerCase().includes(q.toLowerCase()))
+      .map((t) => ({ t, label: esc(t) }));
+    if (q && !knownTags.includes(q) && !tags.includes(q)) items.push({ t: q, label: `＋ 新增「${esc(q)}」` });
+    hi = -1;
+    menu.innerHTML = items.map((it, i) => `<div class="opt" data-i="${i}">${it.label}</div>`).join("");
+    menu.hidden = !items.length;
+  };
+
+  input.addEventListener("focus", showMenu);
+  input.addEventListener("input", showMenu);
   input.addEventListener("keydown", (e) => {
     if (e.isComposing) return;
-    if (e.key === "Enter" || e.key === "," || e.key === "，") { e.preventDefault(); add(input.value); }
-    else if (e.key === "Backspace" && !input.value && tags.length) { tags.pop(); draw(); }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (menu.hidden) showMenu();
+      if (!items.length) return;
+      e.preventDefault();
+      hi = (hi + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      paintHi();
+      menu.querySelector(".hi")?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" || e.key === "," || e.key === "，") {
+      e.preventDefault();
+      add(hi >= 0 && e.key === "Enter" ? items[hi].t : input.value);
+      showMenu();
+    } else if (e.key === "Escape" && !menu.hidden) {
+      e.preventDefault(); // 先關選單，不要連對話框一起關掉
+      hideMenu();
+    } else if (e.key === "Backspace" && !input.value && tags.length) {
+      tags.pop();
+      draw();
+      showMenu();
+    }
   });
-  input.addEventListener("blur", () => { if (input.value.trim()) add(input.value); });
+  input.addEventListener("blur", () => {
+    if (input.value.trim()) add(input.value);
+    hideMenu();
+  });
+  // mousedown 就加入並保持輸入框焦點，所以點一下就直接變成標籤、可以連續點選多個
+  menu.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const el = e.target.closest(".opt");
+    if (!el) return;
+    add(items[+el.dataset.i].t);
+    showMenu();
+  });
   return {
     get() { if (input.value.trim()) add(input.value); return [...tags]; },
-    set(arr) { tags = [...(arr || [])]; input.value = ""; draw(); },
+    set(arr) { tags = [...(arr || [])]; input.value = ""; hideMenu(); draw(); },
   };
 }
 const cardTags = tagInput($("fTags"));
@@ -216,7 +268,7 @@ function render() {
     (typeFilter === "all" || typeOf(c) === typeFilter) && matchTags(c) &&
     (!q || [c.thai, c.roman, c.english, ...tagsOf(c)].join(" ").toLowerCase().includes(q)));
   $("cards").innerHTML = list.map((c) => `
-    <div class="card${revealed.has(c.id) ? " reveal" : ""}" data-id="${c.id}">
+    <div class="card${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
       <div class="line">
         <input type="checkbox" class="sel" ${selected.has(c.id) ? "checked" : ""}>
         <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
@@ -226,7 +278,7 @@ function render() {
         </div>
         <div class="english">${esc(c.english)}</div>
       </div>
-      ${c.detail ? `<div class="detail" hidden>${md(c.detail)}</div>` : ""}
+      ${c.detail ? `<div class="detail"${opened.has(c.id) ? "" : " hidden"}>${md(c.detail)}</div>` : ""}
     </div>`).join("") || "<p>還沒有字卡。</p>";
   updateBar();
 }
@@ -276,8 +328,11 @@ $("cards").onclick = async (e) => {
       revealed.add(el.dataset.id);
       return;
     }
+    // 展開：顯示完整泰文／拼音與說明（沒有說明的卡也能展開看完整文字）
+    const open = el.classList.toggle("open");
+    open ? opened.add(el.dataset.id) : opened.delete(el.dataset.id);
     const d = el.querySelector(".detail");
-    if (d) d.hidden = !d.hidden;
+    if (d) d.hidden = !open;
     return;
   }
   const c = cards.find((x) => x.id === el.dataset.id);
@@ -291,13 +346,27 @@ function openDlg(c) {
   editingId = c?.id ?? null;
   $("dlgTitle").textContent = c ? "編輯字卡" : "新增字卡";
   $("fType").value = c ? typeOf(c) : typeFilter === "all" ? "word" : typeFilter;
-  $("fThai").value = c?.thai ?? "";
+  $("fThai").value = stripSpaces(c?.thai ?? "");
   $("fRoman").value = c?.roman ?? "";
   $("fEnglish").value = c?.english ?? "";
   $("fDetail").value = c?.detail ?? "";
   cardTags.set(c?.tags);
   $("dlg").showModal();
 }
+// 泰文不用空白分詞：貼上或輸入時自動移除所有空白（含全形空白、不換行空白、零寬字元）
+function stripSpaces(s) {
+  return s.replace(/[\s​-‍﻿]+/g, "");
+}
+$("fThai").addEventListener("input", (e) => {
+  if (e.isComposing) return;
+  const el = e.target;
+  const cleaned = stripSpaces(el.value);
+  if (cleaned === el.value) return;
+  const caret = stripSpaces(el.value.slice(0, el.selectionStart)).length; // 游標位置扣掉被移除的空白
+  el.value = cleaned;
+  el.setSelectionRange(caret, caret);
+});
+
 // 從 AI 網頁複製時剪貼簿帶有 HTML；貼上時轉成 Markdown，標題/粗體/表格/清單才不會掉
 const turndown = new TurndownService({ headingStyle: "atx", bulletListMarker: "-", codeBlockStyle: "fenced" });
 turndown.use(gfm);
@@ -386,7 +455,7 @@ $("cancelBtn").onclick = () => $("dlg").close();
 $("form").onsubmit = async () => {
   const data = {
     type: $("fType").value,
-    thai: $("fThai").value.trim(),
+    thai: stripSpaces($("fThai").value),
     roman: $("fRoman").value.trim(),
     english: $("fEnglish").value.trim(),
     detail: $("fDetail").value,
@@ -450,7 +519,10 @@ $("selAdd").onclick = () => {
   hideSelPop();
   getSelection().removeAllRanges();
   openDlg();
-  $("fThai").value = thai;
+  $("fThai").value = stripSpaces(thai);
   $("fType").value = /\s/.test(thai) ? "sentence" : "word"; // 有空白視為句子，否則單字（可手動改）
   $("fRoman").focus();
 };
+
+
+
