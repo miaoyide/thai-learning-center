@@ -24,7 +24,11 @@ let editingVideoId = null;
 let editingArticleId = null;
 let unsubs = [];
 
-const PAGES = ["home", "cards", "videos", "articles"];
+const PAGES = ["home", "cards", "articles", "videos", "quiz"]; // quiz 不在導覽列，從首頁進入
+let quizIds = []; // 隨堂測驗目前抽到的字卡 id
+const quizResult = new Map(); // 本次測驗各題的標記：id → "ok" | "weak"
+let quizWeakOnly = false; // 只考「需加強」的字卡
+try { quizWeakOnly = localStorage.getItem("quizWeak") === "1"; } catch (e) {}
 let page = "home"; // 目前頁面
 let viewing = null; // 列表頁內正在看的內容："video" | "article" | null
 let currentArticleId = null;
@@ -45,7 +49,37 @@ const matchTags = (c) => [...tagFilter].every((t) => tagsOf(c).includes(t));
 
 /* ---------- 工具 ---------- */
 const esc = (s = "") => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const md = (s) => DOMPurify.sanitize(marked.parse(s || "", { breaks: true }));
+// 取出文字中的泰文（連續泰文片段，片段間用空白相連）
+const thaiOf = (text) => (text.match(/[฀-๿]+(?:[ \t]+[฀-๿]+)*/g) || []).join(" ");
+
+// 渲染 Markdown 後，在「本身含泰文的那一行」最前面加喇叭按鈕（清單項目、段落、表格格子、標題）
+const SAY_BLOCKS = "li, p, td, th, h1, h2, h3, h4, h5, h6";
+const SKIP_IN_OWN_TEXT = /^(UL|OL|P|BLOCKQUOTE|TABLE|PRE|DIV|H[1-6]|LI)$/; // 只算這一層自己的文字，不含巢狀區塊
+function addSayButtons(html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll(SAY_BLOCKS).forEach((el) => {
+    let own = "";
+    const walk = (n) => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) own += c.nodeValue;
+        else if (c.nodeType === 1 && !SKIP_IN_OWN_TEXT.test(c.tagName)) walk(c);
+      }
+    };
+    walk(el);
+    const thai = thaiOf(own);
+    if (!thai) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "say";
+    b.title = "發音";
+    b.dataset.say = thai;
+    b.innerHTML = ICON.play;
+    el.insertBefore(b, el.firstChild);
+  });
+  return tpl.innerHTML;
+}
+const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(s || "", { breaks: true })));
 // 泰文不用空白分詞：移除所有空白（含全形空白、不換行空白、零寬字元）
 const stripSpaces = (s) => s.replace(/[\s​-‍﻿]+/g, "");
 const fmtDate = (t) => (t?.toDate ? t.toDate().toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) : "");
@@ -56,6 +90,7 @@ const ICON = {
   play: svg('<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>'),
   edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  flag: svg('<path d="M5 22V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>'),
   del: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>'),
 };
 
@@ -72,9 +107,13 @@ $("themeBtn").onclick = () => {
 sysDark.addEventListener("change", syncThemeBtn);
 syncThemeBtn();
 
-/* ---------- 遮罩（自我測驗）：隱藏泰文與拼音，點一下顯示 ---------- */
+/* ---------- 遮罩（字卡頁專用）：隱藏泰文與拼音，點一下卡片顯示 ---------- */
+let maskOn = false;
+// 只在字卡頁生效，離開字卡頁就自動取消遮罩效果（開關狀態仍保留）
+const syncMask = () => document.body.classList.toggle("mask", maskOn && page === "cards");
 function setMask(on) {
-  document.body.classList.toggle("mask", on);
+  maskOn = on;
+  syncMask();
   $("maskBtn").classList.toggle("on", on);
   if (on) { // 每次開啟都重新蓋住全部
     revealed.clear();
@@ -82,7 +121,7 @@ function setMask(on) {
   }
   try { localStorage.setItem("mask", on ? "1" : "0"); } catch (e) {}
 }
-$("maskBtn").onclick = () => setMask(!document.body.classList.contains("mask"));
+$("maskBtn").onclick = () => setMask(!maskOn);
 try { setMask(localStorage.getItem("mask") === "1"); } catch (e) {}
 
 /* ---------- Auth ---------- */
@@ -123,13 +162,42 @@ onAuthStateChanged(auth, (user) => {
 /* ---------- 語音 ---------- */
 // 固定用 Google 翻譯的泰語語音（非官方網址，若失效改寫這個函式即可），所有裝置聽到的聲音一致。
 let audio = null;
-function speak(text, rate) {
-  if (audio) audio.pause();
-  audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=th&q=${encodeURIComponent(text)}`);
-  audio.playbackRate = rate;
-  audio.preservesPitch = true;
-  audio.play().catch((e) => alert("語音播放失敗：" + e.message));
+let speakToken = 0;
+// 這個語音端點一次只能念短文字，長段落依空白切成小段，依序播放
+function chunkText(text, max = 150) {
+  const chunks = [];
+  let cur = "";
+  for (let w of text.split(/\s+/).filter(Boolean)) {
+    while (w.length > max) { // 沒有空白的超長文字只好硬切
+      if (cur) { chunks.push(cur); cur = ""; }
+      chunks.push(w.slice(0, max));
+      w = w.slice(max);
+    }
+    if ((cur ? `${cur} ${w}` : w).length > max) { chunks.push(cur); cur = w; }
+    else cur = cur ? `${cur} ${w}` : w;
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
 }
+function speak(text, rate) {
+  const token = ++speakToken; // 重新點擊時中斷前一次的連續播放
+  if (audio) audio.pause();
+  const chunks = chunkText(text);
+  const playAt = (i) => {
+    if (token !== speakToken || i >= chunks.length) return;
+    audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=th&q=${encodeURIComponent(chunks[i])}`);
+    audio.playbackRate = rate;
+    audio.preservesPitch = true;
+    audio.onended = () => playAt(i + 1);
+    audio.play().catch((e) => { if (token === speakToken) alert("語音播放失敗：" + e.message); });
+  };
+  playAt(0);
+}
+// 說明區、文章裡自動產生的喇叭按鈕
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".say");
+  if (b) speak(b.dataset.say, 1);
+});
 
 /* ---------- 頁面切換（#home / #cards / #videos / #articles） ---------- */
 const SEARCH_HINT = {
@@ -140,7 +208,8 @@ const SEARCH_HINT = {
 
 function applyView() {
   $("home").hidden = page !== "home";
-  $("browse").hidden = page === "home" || !!viewing;
+  $("quiz").hidden = page !== "quiz";
+  $("browse").hidden = page === "home" || page === "quiz" || !!viewing;
   $("player").hidden = viewing !== "video";
   $("reader").hidden = viewing !== "article";
 }
@@ -154,7 +223,9 @@ function go(p) {
   }
   closeVideo();
   closeArticle();
+  if (p === "quiz" && page !== "quiz") newQuiz(); // 每次進入測驗都重新抽題
   page = p;
+  syncMask();
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
   $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
@@ -298,19 +369,24 @@ function renderHome() {
     <p class="muted">今天想學點什麼？</p>
     <div class="tiles">
       <button class="tile" data-go="cards"><b>${cards.length}</b><span>字卡</span></button>
-      <button class="tile" data-go="videos"><b>${videos.length}</b><span>影片</span></button>
+      <button class="tile" data-go="weak"><b>${cards.filter((c) => c.weak).length}</b><span>需加強</span></button>
       <button class="tile" data-go="articles"><b>${articles.length}</b><span>文章</span></button>
+      <button class="tile" data-go="videos"><b>${videos.length}</b><span>影片</span></button>
     </div>
     <div class="homeactions">
-      <button data-act="quiz">開始遮罩測驗</button>
+      <button data-act="quiz" title="從字卡隨機抽 5–10 張，只顯示英文">隨堂測驗</button>
       <button data-act="export" title="下載全部字卡、影片、文章（JSON 備份）">匯出備份</button>
     </div>`;
 }
 $("home").onclick = (e) => {
   const t = e.target.closest("[data-go]");
+  if (t?.dataset.go === "weak") { // 直接進字卡頁的「需加強」分頁
+    if (page !== "cards") navigate("cards");
+    return setTypeFilter("weak");
+  }
   if (t) return navigate(t.dataset.go);
   const b = e.target.closest("button[data-act]");
-  if (b?.dataset.act === "quiz") { setMask(true); navigate("cards"); }
+  if (b?.dataset.act === "quiz") navigate("quiz");
   if (b?.dataset.act === "export") exportBackup();
 };
 
@@ -330,24 +406,119 @@ function renderVideos(q) {
 
 function renderArticles(q) {
   const list = visible = articles.filter((a) => matchTags(a) &&
-    (!q || [a.title || "", a.body || "", ...tagsOf(a)].join(" ").toLowerCase().includes(q)));
-  const preview = (b = "") => b.replace(/[#>*`_|\[\]()-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
+    (!q || [a.title || "", a.subtitle || "", a.body || "", ...tagsOf(a)].join(" ").toLowerCase().includes(q)));
   $("cards").innerHTML = list.map((a) => `
     <div class="card" data-id="${a.id}">
       <div class="vline">
         <input type="checkbox" class="sel" ${selected.has(a.id) ? "checked" : ""}>
-        <div>
-          <div class="vname">${esc(a.title || "（無標題）")}</div>
-          <div class="preview">${esc(preview(a.body))}</div>
-        </div>
+        <div class="vname">${esc(a.title || "（無標題）")}${a.subtitle ? ` <span class="subtitle">${esc(a.subtitle)}</span>` : ""}</div>
         <div class="english vcount">${fmtDate(a.createdAt)}</div>
       </div>
     </div>`).join("") || "<p>還沒有文章。</p>";
   updateBar();
 }
 
+/* ---------- 隨堂測驗：從字卡隨機抽 5–10 張，只顯示英文；看完答案後可標記「記得了／需加強」並寫備註 ---------- */
+function newQuiz() {
+  const pool = cards.filter((c) => c.english && (!quizWeakOnly || c.weak)); // 沒有英文就沒辦法出題
+  for (let i = pool.length - 1; i > 0; i--) { // Fisher–Yates 洗牌
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const n = Math.min(pool.length, 5 + Math.floor(Math.random() * 6));
+  quizIds = pool.slice(0, n).map((c) => c.id);
+  quizResult.clear();
+  delete $("quiz").dataset.ids; // 讓下一次 renderQuiz 一定重建畫面
+  for (const id of quizIds) { revealed.delete(id); opened.delete(id); }
+}
+
+// 資料更新（例如剛標記完）時只更新標記狀態，不重建畫面，避免正在輸入備註或按鈕被替換
+function updateQuizMarks() {
+  $("quiz").querySelectorAll(".card").forEach((el) => {
+    const c = cards.find((x) => x.id === el.dataset.id);
+    const r = quizResult.get(el.dataset.id);
+    el.classList.toggle("weak", !!c?.weak);
+    el.querySelector('[data-q="ok"]')?.classList.toggle("on", r === "ok");
+    el.querySelector('[data-q="weak"]')?.classList.toggle("on", r === "weak");
+  });
+  const wb = $("quiz").querySelector('[data-act="weakonly"]');
+  if (wb) wb.classList.toggle("on", quizWeakOnly);
+}
+
+function renderQuiz(force = false) {
+  if (!quizIds.length && cards.length) newQuiz(); // 重新整理停在測驗頁時，等資料載入後再抽題
+  const key = quizIds.join();
+  if (!force && $("quiz").dataset.ids === key && $("quiz").children.length) return updateQuizMarks();
+  $("quiz").dataset.ids = key;
+  const list = quizIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
+  const empty = quizWeakOnly ? "還沒有標記為「需加強」的字卡。" : "還沒有可出題的字卡（需要有英文），先去新增吧。";
+  $("quiz").innerHTML = `
+    <div class="readerbar">
+      <button data-act="home">← 首頁</button>
+      <strong class="vtitle">隨堂測驗（${list.length} 題）</strong>
+      <button data-act="weakonly" title="只從標記為「需加強」的字卡抽題">只考需加強</button>
+      <button data-act="again">再抽一組</button>
+    </div>
+    <p class="muted quizhint">看英文回想泰文，點一下卡片顯示答案，再標記「記得了」或「需加強」。</p>
+    ${list.map((c) => `
+      <div class="card quiz${c.weak ? " weak" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
+        <div class="line quizline">
+          <div class="english"><span class="flag" title="需加強">${ICON.flag}</span>${esc(c.english)}</div>
+          <div class="words">
+            <div class="thai">${esc(c.thai)}</div>
+            <div class="roman">${esc(c.roman)}</div>
+          </div>
+          <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
+        </div>
+        <div class="quizact">
+          <button data-q="ok">記得了</button>
+          <button data-q="weak">需加強</button>
+          <input class="qnote" placeholder="備註（例如容易搞混的地方）" value="${esc(c.note || "")}">
+        </div>
+        ${c.detail ? `<div class="detail"${opened.has(c.id) ? "" : " hidden"}>${md(c.detail)}</div>` : ""}
+      </div>`).join("") || `<p>${empty}</p>`}`;
+  updateQuizMarks();
+}
+
+async function markQuiz(id, kind) {
+  const c = cards.find((x) => x.id === id);
+  if (!c || quizResult.get(id) === kind) return;
+  quizResult.set(id, kind);
+  // 需加強：記一次「答錯」；記得了：取消需加強標記（累計次數保留）
+  const data = kind === "weak" ? { weak: true, misses: (c.misses || 0) + 1 } : { weak: false };
+  Object.assign(c, data); // 先更新本地，畫面立即反應
+  updateQuizMarks();
+  try { await updateDoc(doc(db, "cards", id), data); } catch (err) { alert("儲存失敗：" + err.message); }
+}
+
+$("quiz").onclick = (e) => {
+  const b = e.target.closest("button[data-act], button[data-q]");
+  if (b?.dataset.act === "home") return navigate("home");
+  if (b?.dataset.act === "again") { newQuiz(); return renderQuiz(true); }
+  if (b?.dataset.act === "weakonly") {
+    quizWeakOnly = !quizWeakOnly;
+    try { localStorage.setItem("quizWeak", quizWeakOnly ? "1" : "0"); } catch (err) {}
+    newQuiz();
+    return renderQuiz(true);
+  }
+  const el = e.target.closest(".card");
+  if (!el) return;
+  if (b?.dataset.q) return markQuiz(el.dataset.id, b.dataset.q);
+  cardClick(e, el, true);
+};
+$("quiz").addEventListener("change", async (e) => { // 備註在離開輸入框或按 Enter 時儲存
+  if (!e.target.matches(".qnote")) return;
+  const id = e.target.closest(".card").dataset.id;
+  const c = cards.find((x) => x.id === id);
+  const note = e.target.value.trim();
+  if (!c || (c.note || "") === note) return;
+  c.note = note;
+  try { await updateDoc(doc(db, "cards", id), { note }); } catch (err) { alert("儲存失敗：" + err.message); }
+});
+
 function render() {
   if (page === "home") return renderHome();
+  if (page === "quiz") return renderQuiz();
   if (viewing === "article") renderReader(); // 編輯後立即更新閱讀中的內容
   const pool = poolOf();
   for (const id of [...selected]) if (!pool.some((c) => c.id === id)) selected.delete(id);
@@ -355,11 +526,12 @@ function render() {
   const q = $("search").value.trim().toLowerCase();
   if (page === "videos") return renderVideos(q);
   if (page === "articles") return renderArticles(q);
+  $("weakTab").textContent = `需加強 ${cards.filter((c) => c.weak).length}`;
   const list = visible = cards.filter((c) =>
-    (typeFilter === "all" || typeOf(c) === typeFilter) && matchTags(c) &&
+    (typeFilter === "all" || (typeFilter === "weak" ? c.weak : typeOf(c) === typeFilter)) && matchTags(c) &&
     (!q || [c.thai, c.roman, c.english, ...tagsOf(c)].join(" ").toLowerCase().includes(q)));
   $("cards").innerHTML = list.map((c) => `
-    <div class="card${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
+    <div class="card${c.weak ? " weak" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
       <div class="line">
         <input type="checkbox" class="sel" ${selected.has(c.id) ? "checked" : ""}>
         <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
@@ -367,19 +539,22 @@ function render() {
           <div class="thai">${esc(c.thai)}</div>
           <div class="roman">${esc(c.roman)}</div>
         </div>
-        <div class="english">${esc(c.english)}</div>
+        <div class="english"><span class="flag" title="需加強">${ICON.flag}</span>${esc(c.english)}</div>
       </div>
+      ${c.note ? `<div class="mynote">我的備註：${esc(c.note)}</div>` : ""}
       ${c.detail ? `<div class="detail"${opened.has(c.id) ? "" : " hidden"}>${md(c.detail)}</div>` : ""}
     </div>`).join("") || "<p>還沒有字卡。</p>";
   updateBar();
 }
 
+function setTypeFilter(t) {
+  typeFilter = t;
+  document.querySelectorAll("#typeTabs button[data-type]").forEach((x) => x.classList.toggle("on", x.dataset.type === t));
+  render();
+}
 $("typeTabs").onclick = (e) => {
   const b = e.target.closest("button[data-type]");
-  if (!b) return;
-  typeFilter = b.dataset.type;
-  document.querySelectorAll("#typeTabs button").forEach((x) => x.classList.toggle("on", x === b));
-  render();
+  if (b) setTypeFilter(b.dataset.type);
 };
 $("search").oninput = render;
 $("selAll").onchange = (e) => {
@@ -417,12 +592,16 @@ $("cards").onclick = (e) => {
   }
   if (page === "videos") return openVideo(videos.find((v) => v.id === el.dataset.id));
   if (page === "articles") return openArticle(articles.find((a) => a.id === el.dataset.id));
+  cardClick(e, el, document.body.classList.contains("mask"));
+};
+
+// 字卡列（字卡頁與隨堂測驗共用）：播放；點卡片切換說明；masked 時第一次點擊先顯示答案
+function cardClick(e, el, masked) {
   const btn = e.target.closest("button[data-act]");
-  // 點卡片（非按鈕）切換說明；選取文字或點說明內的連結/內容時不切換
   if (!btn) {
-    if (e.target.closest(".detail") || getSelection().toString()) return;
-    // 遮罩模式：第一次點擊先顯示答案，之後才是展開／收合說明
-    if (document.body.classList.contains("mask") && !el.classList.contains("reveal")) {
+    // 選取文字或點說明內的內容時不切換
+    if (e.target.closest(".detail, .quizact") || getSelection().toString()) return;
+    if (masked && !el.classList.contains("reveal")) {
       el.classList.add("reveal");
       revealed.add(el.dataset.id);
       return;
@@ -436,13 +615,15 @@ $("cards").onclick = (e) => {
   }
   const c = cards.find((x) => x.id === el.dataset.id);
   if (btn.dataset.act === "play1") speak(c.thai, 1);
-};
+}
 
 /* ---------- 字卡對話框 ---------- */
 function openDlg(c) {
   editingId = c?.id ?? null;
   $("dlgTitle").textContent = c ? "編輯字卡" : "新增字卡";
-  $("fType").value = c ? typeOf(c) : typeFilter === "all" ? "word" : typeFilter;
+  $("fType").value = c ? typeOf(c) : typeFilter === "sentence" ? "sentence" : "word";
+  $("fNote").value = c?.note ?? "";
+  $("fWeak").checked = !!c?.weak;
   $("fThai").value = stripSpaces(c?.thai ?? "");
   $("fRoman").value = c?.roman ?? "";
   $("fEnglish").value = c?.english ?? "";
@@ -482,6 +663,8 @@ $("form").onsubmit = async () => {
     roman: $("fRoman").value.trim(),
     english: $("fEnglish").value.trim(),
     detail: $("fDetail").value,
+    note: $("fNote").value.trim(),
+    weak: $("fWeak").checked,
     tags: cardTags.get(),
   };
   if (editingId) await updateDoc(doc(db, "cards", editingId), data);
@@ -495,14 +678,16 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     cards: cards.map((c) => ({
       id: c.id, type: typeOf(c), thai: c.thai ?? "", roman: c.roman ?? "", english: c.english ?? "",
-      detail: c.detail ?? "", tags: tagsOf(c), createdAt: iso(c.createdAt),
+      detail: c.detail ?? "", tags: tagsOf(c), note: c.note ?? "", weak: !!c.weak, misses: c.misses ?? 0,
+      createdAt: iso(c.createdAt),
     })),
     videos: videos.map((v) => ({
       id: v.id, title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
       cues: v.cues ?? [], tags: tagsOf(v), createdAt: iso(v.createdAt),
     })),
     articles: articles.map((a) => ({
-      id: a.id, title: a.title ?? "", body: a.body ?? "", tags: tagsOf(a), createdAt: iso(a.createdAt),
+      id: a.id, title: a.title ?? "", subtitle: a.subtitle ?? "", body: a.body ?? "", tags: tagsOf(a),
+      createdAt: iso(a.createdAt),
     })),
   };
   const a = document.createElement("a");
@@ -642,7 +827,10 @@ function renderReader() {
   $("reader").innerHTML = `
     <div class="readerbar">
       <button id="aBack">← 返回</button>
-      <strong class="vtitle">${esc(a.title || "（無標題）")}</strong>
+      <div class="vtitle">
+        <strong>${esc(a.title || "（無標題）")}</strong>
+        ${a.subtitle ? `<div class="subtitle">${esc(a.subtitle)}</div>` : ""}
+      </div>
       <button id="aEdit" class="icon" title="編輯">${ICON.edit}</button>
     </div>
     <article class="detail article-body" lang="th">${md(a.body)}</article>`;
@@ -671,13 +859,19 @@ function openArticleDlg(a) {
   editingArticleId = a?.id ?? null;
   $("adlgTitle").textContent = a ? "編輯文章" : "新增文章";
   $("aTitle").value = a?.title ?? "";
+  $("aSubtitle").value = a?.subtitle ?? "";
   $("aBody").value = a?.body ?? "";
   articleTags.set(a?.tags);
   $("adlg").showModal();
 }
 $("aCancel").onclick = () => $("adlg").close();
 $("aform").onsubmit = async () => {
-  const data = { title: $("aTitle").value.trim(), body: $("aBody").value, tags: articleTags.get() };
+  const data = {
+    title: $("aTitle").value.trim(),
+    subtitle: $("aSubtitle").value.trim(),
+    body: $("aBody").value,
+    tags: articleTags.get(),
+  };
   if (editingArticleId) await updateDoc(doc(db, "articles", editingArticleId), data);
   else await addDoc(collection(db, "articles"), { ...data, createdAt: serverTimestamp() });
 };
@@ -699,8 +893,8 @@ function checkSelection() {
   const node = range.commonAncestorContainer;
   const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail, .cue");
   if (!host) return hideSelPop();
-  // 只取選取範圍內的泰文（連續泰文片段，片段間用空白相連）
-  selThai = (sel.toString().match(/[฀-๿]+(?:[ \t]+[฀-๿]+)*/g) || []).join(" ");
+  // 只取選取範圍內的泰文
+  selThai = thaiOf(sel.toString());
   if (!selThai) return hideSelPop();
   $("selText").textContent = selThai;
   selPop.hidden = false;
@@ -743,5 +937,12 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
+
+
+
+
 
 

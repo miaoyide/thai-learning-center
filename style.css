@@ -115,11 +115,11 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 
 /* 遮罩（自我測驗） */
 #maskBtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-.mask .card:not(.reveal) :is(.thai, .roman), .mask .cue:not(.reveal) :is(.thai, .roman) {
+.mask .card:not(.reveal) :is(.thai, .roman), .card.quiz:not(.reveal) :is(.thai, .roman) {
   color:transparent !important; background:var(--border); border-radius:6px; user-select:none;
   width:fit-content; max-width:100%; min-width:4em; text-shadow:none;
 }
-.mask .card:not(.reveal) .detail { display:none; }
+.mask .card:not(.reveal) .detail, .card.quiz:not(.reveal) .detail { display:none; }
 
 .vcount { text-align:right; white-space:nowrap; }
 
@@ -153,7 +153,8 @@ header h1 a { color:inherit; text-decoration:none; }
 #nav button:hover { color:var(--fg); background:var(--card); }
 #nav button.on { color:var(--accent); font-weight:600; background:var(--card); }
 @media (max-width:700px) { #nav { order:3; width:100%; margin-right:0; overflow-x:auto; } }
-#typeTabs { display:flex; gap:6px; }
+#typeTabs { display:flex; gap:6px; flex:1; }
+#maskBtn { margin-left:auto; }
 
 /* 首頁 */
 #home { max-width:640px; margin:0 auto; text-align:center; padding:24px 0; }
@@ -169,5 +170,47 @@ header h1 a { color:inherit; text-decoration:none; }
 .readerbar { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; padding:8px 0; background:var(--bg); }
 .readerbar .vtitle { flex:1; min-width:0; }
 .article-body { margin-top:8px; font-size:1.05rem; }
-.preview { color:var(--muted); font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .vline > div { min-width:0; }
+
+/* 副標題 */
+.vtitle strong, .vtitle .subtitle { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.subtitle { color:var(--muted); font-size:.9rem; font-weight:400; }
+.vname .subtitle { margin-left:.4em; }
+
+
+/* 內文自動產生的喇叭按鈕 */
+button.say { border:none; background:none; padding:0 6px 0 0; margin:0; color:var(--accent); vertical-align:-.12em; cursor:pointer; font-size:1.05em; line-height:1; }
+button.say:hover { opacity:.7; }
+
+/* 隨堂測驗 */
+.quizhint { margin:4px 0 12px; }
+.line.quizline { grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto; }
+.quizline .english { font-size:1.15rem; color:var(--fg); }
+.card.quiz:not(.reveal) button.play { visibility:hidden; }
+@media (max-width:600px) {
+  .line.quizline { grid-template-columns:minmax(0,1fr) auto; }
+  .quizline .english { grid-column:1; grid-row:1; }
+  .quizline .words { grid-column:1; grid-row:2; }
+  .quizline .play { grid-column:2; grid-row:1 / 3; }
+}
+
+/* 需加強標記與備註 */
+:root { --weak:#d9483f; }
+:root[data-theme="dark"] { --weak:#ff7b72; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --weak:#ff7b72; } }
+.flag { display:inline-flex; margin-right:6px; color:var(--weak); vertical-align:-.12em; }
+.card:not(.weak) .flag { display:none; }
+.card.weak { box-shadow:inset 3px 0 0 var(--weak); }
+.mynote { margin:2px 0 6px 0; padding-left:3.4em; color:var(--muted); font-size:.9rem; }
+.card:not(.open) .mynote { display:none; }
+.tabs button[data-type="weak"].on { background:var(--weak); border-color:var(--weak); }
+.tiles { grid-template-columns:repeat(auto-fit, minmax(110px, 1fr)); }
+.chk { display:flex !important; align-items:center; gap:8px; }
+.chk input { width:auto; margin:0; }
+.quizact { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.card.quiz:not(.reveal) .quizact { display:none; }
+.quizact .qnote { flex:1; min-width:10em; width:auto; padding:5px 8px; }
+.quizact button.on[data-q="ok"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+.quizact button.on[data-q="weak"] { background:var(--weak); border-color:var(--weak); color:#fff; }
+.readerbar button[data-act="weakonly"].on { background:var(--weak); border-color:var(--weak); color:#fff; }
+

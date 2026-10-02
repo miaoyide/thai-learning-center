@@ -17,11 +17,10 @@
   <nav id="nav" hidden>
     <button data-page="home">首頁</button>
     <button data-page="cards">字卡</button>
-    <button data-page="videos">影片</button>
     <button data-page="articles">文章</button>
+    <button data-page="videos">影片</button>
   </nav>
   <div class="hdr-right">
-    <button id="maskBtn" title="遮罩：隱藏泰文與拼音，點一下顯示答案">遮罩</button>
     <button id="themeBtn" title="切換淺色／深色"></button>
     <div id="authBox"></div>
   </div>
@@ -46,6 +45,8 @@
         <button data-type="all" class="on">全部</button>
         <button data-type="word">單字</button>
         <button data-type="sentence">句子</button>
+        <button data-type="weak" id="weakTab">需加強</button>
+        <button id="maskBtn" title="遮罩：隱藏泰文與拼音，點一下卡片顯示答案">遮罩</button>
       </span>
     </div>
     <div class="tagbar" id="tagbar" hidden></div>
@@ -53,6 +54,9 @@
   </div>
 
   <!-- 影片播放頁 / 文章閱讀頁 -->
+  <!-- 隨堂測驗 -->
+  <div id="quiz" hidden></div>
+
   <div id="player" hidden></div>
   <div id="reader" hidden></div>
 </main>
@@ -75,6 +79,10 @@
     <label>泰文 <input id="fThai" required lang="th"></label>
     <label>羅馬拼音 <input id="fRoman"></label>
     <label>英文 <input id="fEnglish"></label>
+    <label>我的備註（例如容易搞混的地方，展開字卡時顯示）
+      <input id="fNote">
+    </label>
+    <label class="chk"><input type="checkbox" id="fWeak"> 標記為「需加強」</label>
     <label>標籤（情境，點選或輸入後按 Enter）
       <div class="taginput" id="fTags"><input placeholder="例如：餐廳"></div>
     </label>
@@ -136,7 +144,8 @@
 <dialog id="adlg">
   <form id="aform" method="dialog">
     <h2 id="adlgTitle">新增文章</h2>
-    <label>標題 <input id="aTitle" required></label>
+    <label>標題 <input id="aTitle" required lang="th"></label>
+    <label>英文副標題（選填） <input id="aSubtitle"></label>
     <label>標籤（情境，點選或輸入後按 Enter）
       <div class="taginput" id="aTags"><input placeholder="例如：新聞"></div>
     </label>
