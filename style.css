@@ -54,17 +54,14 @@ main { max-width:900px; }
 #cards { border-top:1px solid var(--border); }
 .card { border-bottom:1px solid var(--border); padding:10px 15px; cursor:pointer; }
 .card:hover { background:var(--hover); }
-.line { display:grid; grid-template-columns:auto auto minmax(0,1.3fr) minmax(0,1fr) auto; align-items:center; gap:4px 14px; }
+.line { display:grid; grid-template-columns:auto auto minmax(0,1.3fr) minmax(0,1fr); align-items:center; gap:4px 14px; }
 .thai { font-size:1.25rem; font-weight:600; line-height:1.4; }
 .roman { color:var(--roman); }
 .english { color:var(--muted); }
-.meta { display:flex; align-items:center; gap:2px; }
-.badge { font-size:.7rem; color:var(--muted); border:1px solid var(--border); border-radius:10px; padding:0 8px; margin-right:6px; white-space:nowrap; }
 button.play { opacity:1; color:var(--accent); padding:4px; font-size:1.3rem; }
 @media (max-width:600px) {
-  .line { grid-template-columns:auto auto minmax(0,1fr) auto; }
+  .line { grid-template-columns:auto auto minmax(0,1fr); }
   .english { grid-column:3; grid-row:2; }
-  .meta { grid-row:1; grid-column:4; }
 }
 
 
@@ -87,7 +84,7 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 
 
 /* 影片 */
-.vline { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:4px 14px; }
+.vline { display:grid; grid-template-columns:auto minmax(0,1fr) 4em; align-items:center; gap:4px 14px; }
 .vname { font-weight:600; }
 .vhead { display:flex; align-items:center; gap:12px; padding:8px 0; }
 .vtitle { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -110,8 +107,6 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .tagbtn span { color:var(--muted); font-size:.75rem; margin-left:2px; }
 .tagbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 .tagbtn.on span { color:#fff; opacity:.8; }
-.tag { font-size:.75rem; color:var(--accent); background:var(--detail-bg); border-radius:10px; padding:1px 8px; margin-right:4px; white-space:nowrap; }
-.meta { flex-wrap:wrap; justify-content:flex-end; }
 .taginput { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:4px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; background:var(--card); }
 .taginput input { flex:1; min-width:6em; border:none; padding:4px; background:none; outline:none; margin:0; }
 .chip { display:inline-flex; align-items:center; gap:2px; font-size:.85rem; color:var(--accent); background:var(--detail-bg); border-radius:10px; padding:1px 4px 1px 8px; }
@@ -125,3 +120,13 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
   width:fit-content; min-width:4em; text-shadow:none;
 }
 .mask .card:not(.reveal) .detail { display:none; }
+
+.vcount { text-align:right; white-space:nowrap; }
+
+
+
+
+/* 反白泰文浮窗 */
+#selPop { position:fixed; z-index:50; display:flex; align-items:center; gap:8px; padding:6px 8px; background:var(--card); border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.25); max-width:min(92vw, 460px); }
+#selText { font-size:1.05rem; font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#selPop button { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; padding:4px 10px; }

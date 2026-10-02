@@ -104,7 +104,6 @@ const ICON = {
 };
 
 let typeFilter = "all";
-const TYPE_LABEL = { word: "單字", sentence: "句子" };
 const typeOf = (c) => c.type || "sentence"; // 舊資料沒有分類時視為句子
 
 $("tabs").onclick = (e) => {
@@ -133,7 +132,6 @@ function updateBar() {
 const tagFilter = new Set(); // 多選時為「同時符合」
 const tagsOf = (c) => c.tags || [];
 const matchTags = (c) => [...tagFilter].every((t) => tagsOf(c).includes(t));
-const tagChips = (c) => tagsOf(c).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
 
 function renderTagBar(pool) {
   const counts = new Map();
@@ -202,7 +200,7 @@ function renderVideos(q) {
       <div class="vline">
         <input type="checkbox" class="sel" ${selected.has(v.id) ? "checked" : ""}>
         <div class="vname">${esc(v.title || v.videoId)}</div>
-        <div class="meta">${tagChips(v)}<span class="english">${v.cues?.length ?? 0} 句</span></div>
+        <div class="english vcount">${v.cues?.length ?? 0} 句</div>
       </div>
     </div>`).join("") || "<p>還沒有影片。</p>";
   updateBar();
@@ -227,10 +225,6 @@ function render() {
           <div class="roman">${esc(c.roman)}</div>
         </div>
         <div class="english">${esc(c.english)}</div>
-        <div class="meta">
-          ${typeFilter === "all" ? `<span class="badge">${TYPE_LABEL[typeOf(c)]}</span>` : ""}
-          ${tagChips(c)}
-        </div>
       </div>
       ${c.detail ? `<div class="detail" hidden>${md(c.detail)}</div>` : ""}
     </div>`).join("") || "<p>還沒有字卡。</p>";
@@ -400,4 +394,63 @@ $("form").onsubmit = async () => {
   };
   if (editingId) await updateDoc(doc(db, "cards", editingId), data);
   else await addDoc(collection(db, "cards"), { ...data, createdAt: serverTimestamp() });
+};
+
+/* ---------- 在詳細說明內反白泰文 → 浮窗：發音 / 加入字卡 ---------- */
+const selPop = $("selPop");
+$("selPlay").innerHTML = `${ICON.play} 發音`;
+$("selAdd").innerHTML = `${ICON.plus} 加入字卡`;
+let selThai = "";
+let selTimer = null;
+let mouseDown = false;
+
+const hideSelPop = () => { selPop.hidden = true; };
+
+function checkSelection() {
+  const sel = getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return hideSelPop();
+  const range = sel.getRangeAt(0);
+  const node = range.commonAncestorContainer;
+  const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail");
+  if (!host) return hideSelPop();
+  // 只取選取範圍內的泰文（連續泰文片段，片段間用空白相連）
+  selThai = (sel.toString().match(/[\u0E00-\u0E7F]+(?:[ \t]+[\u0E00-\u0E7F]+)*/g) || []).join(" ");
+  if (!selThai) return hideSelPop();
+  $("selText").textContent = selThai;
+  selPop.hidden = false;
+  const r = range.getBoundingClientRect();
+  const w = selPop.offsetWidth, h = selPop.offsetHeight;
+  const top = r.bottom + 8 + h > innerHeight ? Math.max(8, r.top - h - 8) : r.bottom + 8;
+  selPop.style.top = `${top}px`;
+  selPop.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
+}
+
+document.addEventListener("selectionchange", () => { // 手機長按選取也會觸發；等選取停下來再顯示
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => { if (!mouseDown) checkSelection(); }, 250);
+});
+document.addEventListener("mousedown", (e) => {
+  if (e.target.closest("#selPop")) return;
+  mouseDown = true;
+  hideSelPop();
+});
+document.addEventListener("mouseup", () => {
+  mouseDown = false;
+  clearTimeout(selTimer);
+  selTimer = setTimeout(checkSelection, 0);
+});
+document.addEventListener("scroll", hideSelPop, { passive: true });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideSelPop(); });
+// 點浮窗按鈕時不要讓反白消失
+selPop.addEventListener("mousedown", (e) => e.preventDefault());
+
+$("selPlay").onclick = () => speak(selThai, 1);
+$("selAdd").onclick = () => {
+  const thai = selThai;
+  hideSelPop();
+  getSelection().removeAllRanges();
+  openDlg();
+  $("fThai").value = thai;
+  $("fType").value = /\s/.test(thai) ? "sentence" : "word"; // 有空白視為句子，否則單字（可手動改）
+  $("fRoman").focus();
 };
