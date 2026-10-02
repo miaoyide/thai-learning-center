@@ -199,7 +199,7 @@ function applyAuthUI() {
   $("authBox").innerHTML = signedIn
     ? `<button id="outBtn">登出</button>`
     : guest
-      ? `<button id="outBtn">離開訪客模式</button><span class="badge">訪客・唯讀</span>`
+      ? `<button id="outBtn">離開訪客模式</button>`
       : `<button id="inBtn">Google 登入</button>`;
   if ($("outBtn")) $("outBtn").onclick = () => (signedIn ? signOut(auth) : exitGuest());
   if ($("inBtn")) $("inBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
@@ -223,6 +223,7 @@ function exitGuest() {
   applyAuthUI();
 }
 $("guestBtn").onclick = enterGuest;
+$("loginBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
 
 onAuthStateChanged(auth, (user) => {
   signedIn = !!user;
@@ -278,6 +279,16 @@ document.addEventListener("click", (e) => {
   if (b) speak(b.dataset.say, 1);
 });
 
+/* ---------- 手機版側邊欄 ---------- */
+const setSidebar = (open) => {
+  document.body.classList.toggle("sidebar-open", open);
+  $("menuBtn").setAttribute("aria-expanded", String(open));
+};
+$("menuBtn").onclick = () => setSidebar(!document.body.classList.contains("sidebar-open"));
+$("sideOverlay").onclick = () => setSidebar(false);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setSidebar(false); });
+$("authBox").addEventListener("click", (e) => { if (e.target.closest("button")) setSidebar(false); });
+
 /* ---------- 頁面切換（#home / #cards / #videos / #articles） ---------- */
 const SEARCH_HINT = {
   cards: "搜尋泰文 / 拼音 / 英文…",
@@ -301,6 +312,7 @@ function go(p) {
     tagFilter.clear();
     $("search").value = "";
   }
+  setSidebar(false); // 換頁後收起手機版側邊欄
   closeVideo();
   closeArticle();
   if (p === "quiz" && page !== "quiz") newQuiz(); // 每次進入測驗都重新抽題
@@ -1023,6 +1035,7 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
 
 
 

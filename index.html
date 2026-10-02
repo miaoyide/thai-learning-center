@@ -17,21 +17,26 @@
 </head>
 <body>
 <header>
+  <button id="menuBtn" aria-label="開啟選單" aria-expanded="false">☰</button>
   <h1><a href="#home">泰語學習</a></h1>
-  <nav id="nav" hidden>
-    <button data-page="home">首頁</button>
-    <button data-page="cards">字卡</button>
-    <button data-page="articles">文章</button>
-    <button data-page="videos">影片</button>
-  </nav>
-  <div class="hdr-right">
-    <div class="themepick">
-      <button id="themeBtn" title="切換主題" aria-haspopup="true">主題</button>
-      <div id="themeMenu" hidden></div>
+  <!-- 桌面版：內容直接排在頁首；手機版：變成從左側滑出的側邊欄 -->
+  <div id="sidebar">
+    <nav id="nav" hidden>
+      <button data-page="home">首頁</button>
+      <button data-page="cards">字卡</button>
+      <button data-page="articles">文章</button>
+      <button data-page="videos">影片</button>
+    </nav>
+    <div class="hdr-right">
+      <div class="themepick">
+        <button id="themeBtn" title="切換主題" aria-haspopup="true">主題</button>
+        <div id="themeMenu" hidden></div>
+      </div>
+      <div id="authBox"></div>
     </div>
-    <div id="authBox"></div>
   </div>
 </header>
+<div id="sideOverlay"></div>
 
 <main id="app" hidden>
   <!-- 首頁 -->
@@ -70,6 +75,7 @@
 
 <div id="loginHint" class="loginbox">
   <p>請先以 Google 登入。</p>
+  <button id="loginBtn">Google 登入</button>
   <button id="guestBtn" title="不登入，只能瀏覽字卡、文章與影片">以訪客身分瀏覽（唯讀）</button>
 </div>
 
@@ -172,6 +178,7 @@
 <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
 
 

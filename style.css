@@ -147,7 +147,6 @@ header h1 a { color:inherit; text-decoration:none; }
 #nav button { border:none; background:none; padding:6px 12px; border-radius:6px; color:var(--muted); }
 #nav button:hover { color:var(--fg); background:var(--card); }
 #nav button.on { color:var(--accent); font-weight:600; background:var(--card); }
-@media (max-width:700px) { #nav { order:3; width:100%; margin-right:0; overflow-x:auto; } }
 #typeTabs { display:flex; gap:6px; flex:1; }
 #maskBtn { margin-left:auto; }
 
@@ -403,3 +402,33 @@ button.say:hover { opacity:.7; }
 [data-theme="obsidian"] dialog { background:#262626; border:1px solid #3d3d3d; border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.6); }
 [data-theme="obsidian"] dialog::backdrop { background:rgba(0,0,0,.65); }
 [data-theme="obsidian"] .cue.on { box-shadow:inset 3px 0 0 var(--accent); }
+
+/* ===== 手機版：頁首內容收進側邊欄（預設隱藏，用 ☰ 開關） ===== */
+#menuBtn { display:none; padding:6px 10px; font-size:1.2rem; line-height:1; }
+#sidebar { display:contents; }
+#sideOverlay { display:none; }
+.guest .card.weak { box-shadow:none; }
+@media (max-width:700px) {
+  header { flex-wrap:nowrap; justify-content:space-between; gap:12px; }
+  header h1 { order:1; }
+  #menuBtn { display:inline-flex; order:2; margin-left:auto; } /* 選單按鈕在右側，和標題分開 */
+  #sidebar { display:flex; flex-direction:column; gap:20px; position:fixed; top:0; right:0; bottom:0; width:min(82vw, 300px); padding:20px 16px; background:var(--card); color:var(--fg); border-left:1px solid var(--border); box-shadow:-4px 0 24px rgba(0,0,0,.3); z-index:100; overflow-y:auto; transform:translateX(105%); transition:transform .2s ease; visibility:hidden; }
+  body.sidebar-open #sidebar { transform:none; visibility:visible; }
+  body.sidebar-open #sideOverlay { display:block; position:fixed; inset:0; z-index:90; background:rgba(0,0,0,.45); }
+  #nav { flex-direction:column; margin:0; width:100%; gap:2px; }
+  #nav button { width:100%; text-align:left; padding:10px 12px; font-size:1.05rem; }
+  .hdr-right { flex-direction:column; align-items:stretch; gap:10px; margin-top:auto; }
+  .hdr-right button, #authBox button { width:100%; }
+  #authBox { flex-direction:column; align-items:stretch; }
+  .themepick { width:100%; }
+  #themeMenu { position:static; box-shadow:none; margin-top:6px; min-width:0; }
+}
+
+/* 窄螢幕：分頁按鈕不要被擠成直排，放不下就換行 */
+.tabs button, .tagbtn { white-space:nowrap; }
+#typeTabs { flex-wrap:wrap; }
+@media (max-width:700px) {
+  .toolbar { flex-wrap:wrap; }
+  #search { flex:1 1 100%; }
+}
+
