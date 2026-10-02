@@ -1,4 +1,4 @@
-rules_version = '2';
+﻿rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /cards/{id} {
@@ -6,6 +6,10 @@ service cloud.firestore {
         && request.auth.token.email == "miaoyide@gmail.com";
     }
     match /videos/{id} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email == "miaoyide@gmail.com";
+    }
+    match /articles/{id} {
       allow read, write: if request.auth != null
         && request.auth.token.email == "miaoyide@gmail.com";
     }

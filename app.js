@@ -15,13 +15,49 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const $ = (id) => document.getElementById(id);
 
+/* ---------- 狀態 ---------- */
 let cards = [];
 let videos = [];
+let articles = [];
 let editingId = null;
 let editingVideoId = null;
+let editingArticleId = null;
+let unsubs = [];
+
+const PAGES = ["home", "cards", "videos", "articles"];
+let page = "home"; // 目前頁面
+let viewing = null; // 列表頁內正在看的內容："video" | "article" | null
+let currentArticleId = null;
+let unmountVideo = null;
+
+let typeFilter = "all"; // 字卡頁的分類分頁：all | word | sentence
+const selected = new Set();
+let visible = []; // 目前列表顯示的項目
 const revealed = new Set(); // 遮罩模式下已點開的字卡（重新渲染後保留）
 const opened = new Set(); // 已展開的字卡（重新渲染後保留）
-let unsubs = [];
+const tagFilter = new Set(); // 多選時為「同時符合」
+let knownTags = []; // 目前頁面已用過的標籤（依使用次數排序），供輸入框選單使用
+
+const poolOf = (p = page) => ({ cards, videos, articles })[p] || [];
+const typeOf = (c) => c.type || "sentence"; // 舊資料沒有分類時視為句子
+const tagsOf = (c) => c.tags || [];
+const matchTags = (c) => [...tagFilter].every((t) => tagsOf(c).includes(t));
+
+/* ---------- 工具 ---------- */
+const esc = (s = "") => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const md = (s) => DOMPurify.sanitize(marked.parse(s || "", { breaks: true }));
+// 泰文不用空白分詞：移除所有空白（含全形空白、不換行空白、零寬字元）
+const stripSpaces = (s) => s.replace(/[\s​-‍﻿]+/g, "");
+const fmtDate = (t) => (t?.toDate ? t.toDate().toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) : "");
+
+// 單色 SVG icon：用 currentColor，顏色/大小直接由 CSS 控制（.ico）
+const svg = (d) => `<svg class="ico" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  play: svg('<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>'),
+  edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  del: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>'),
+};
 
 /* ---------- 主題 ---------- */
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
@@ -50,8 +86,17 @@ $("maskBtn").onclick = () => setMask(!document.body.classList.contains("mask"));
 try { setMask(localStorage.getItem("mask") === "1"); } catch (e) {}
 
 /* ---------- Auth ---------- */
+const watch = (name, label, set) =>
+  onSnapshot(query(collection(db, name), orderBy("createdAt", "desc")), (snap) => {
+    set(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    render();
+  }, (e) => (name === "cards"
+    ? alert("讀取失敗：" + e.message)
+    : console.warn(`${label}讀取失敗（Firestore 規則是否已加入 ${name}？）`, e)));
+
 onAuthStateChanged(auth, (user) => {
   $("app").hidden = !user;
+  $("nav").hidden = !user;
   $("loginHint").hidden = !!user;
   $("authBox").innerHTML = user
     ? `<button id="outBtn">登出</button>`
@@ -59,14 +104,9 @@ onAuthStateChanged(auth, (user) => {
   if (user) {
     $("outBtn").onclick = () => signOut(auth);
     unsubs = [
-      onSnapshot(query(collection(db, "cards"), orderBy("createdAt", "desc")), (snap) => {
-        cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        render();
-      }, (e) => alert("讀取失敗：" + e.message)),
-      onSnapshot(query(collection(db, "videos"), orderBy("createdAt", "desc")), (snap) => {
-        videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        render();
-      }, (e) => console.warn("影片讀取失敗（Firestore 規則是否已加入 videos？）", e)),
+      watch("cards", "字卡", (v) => (cards = v)),
+      watch("videos", "影片", (v) => (videos = v)),
+      watch("articles", "文章", (v) => (articles = v)),
     ];
   } else {
     $("inBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
@@ -74,68 +114,63 @@ onAuthStateChanged(auth, (user) => {
     unsubs = [];
     cards = [];
     videos = [];
+    articles = [];
     closeVideo();
+    closeArticle();
   }
 });
 
 /* ---------- 語音 ---------- */
-// 預設用瀏覽器內建 Web Speech API。要改用外部 TTS API，只要改寫這個函式即可。
-// 系統有泰語語音就用內建的；沒有就改用 Google 翻譯 TTS（非官方網址，若失效改寫這裡即可）。
+// 固定用 Google 翻譯的泰語語音（非官方網址，若失效改寫這個函式即可），所有裝置聽到的聲音一致。
 let audio = null;
 function speak(text, rate) {
   if (audio) audio.pause();
-  // 固定用 Google 翻譯的泰語語音，所有裝置聽到的聲音一致（不使用系統語音）
   audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=th&q=${encodeURIComponent(text)}`);
   audio.playbackRate = rate;
   audio.preservesPitch = true;
   audio.play().catch((e) => alert("語音播放失敗：" + e.message));
 }
 
-/* ---------- 渲染 ---------- */
-const esc = (s = "") => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const md = (s) => DOMPurify.sanitize(marked.parse(s || "", { breaks: true }));
-
-// 單色 SVG icon：用 currentColor，顏色/大小直接由 CSS 控制（.ico）
-const svg = (d) => `<svg class="ico" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const ICON = {
-  play: svg('<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>'),
-  edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  del: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>'),
+/* ---------- 頁面切換（#home / #cards / #videos / #articles） ---------- */
+const SEARCH_HINT = {
+  cards: "搜尋泰文 / 拼音 / 英文…",
+  videos: "搜尋影片標題 / 標籤…",
+  articles: "搜尋文章標題 / 內容 / 標籤…",
 };
 
-let typeFilter = "all";
-const typeOf = (c) => c.type || "sentence"; // 舊資料沒有分類時視為句子
-
-$("tabs").onclick = (e) => {
-  const b = e.target.closest("button[data-type]");
-  if (!b) return;
-  // 影片與字卡是不同集合，切換時清掉勾選，避免誤刪
-  if ((b.dataset.type === "video") !== (typeFilter === "video")) { selected.clear(); tagFilter.clear(); }
-  typeFilter = b.dataset.type;
-  $("importBtn").hidden = typeFilter === "video"; // 匯入只用於字卡
-  document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
-  render();
-};
-
-const selected = new Set();
-let visible = []; // 目前列表顯示的字卡
-
-function updateBar() {
-  $("editBtn").disabled = selected.size !== 1;
-  $("delBtn").disabled = selected.size === 0;
-  $("delBtn").textContent = selected.size > 1 ? `刪除 (${selected.size})` : "刪除";
-  const n = visible.filter((c) => selected.has(c.id)).length;
-  $("selAll").checked = visible.length > 0 && n === visible.length;
-  $("selAll").indeterminate = n > 0 && n < visible.length;
+function applyView() {
+  $("home").hidden = page !== "home";
+  $("browse").hidden = page === "home" || !!viewing;
+  $("player").hidden = viewing !== "video";
+  $("reader").hidden = viewing !== "article";
 }
 
-/* ---------- 標籤（情境分類，一個項目可有多個；與 type 互相獨立） ---------- */
-const tagFilter = new Set(); // 多選時為「同時符合」
-let knownTags = []; // 目前集合內已用過的標籤（依使用次數排序），供輸入框選單使用
-const tagsOf = (c) => c.tags || [];
-const matchTags = (c) => [...tagFilter].every((t) => tagsOf(c).includes(t));
+function go(p) {
+  if (!PAGES.includes(p)) p = "home";
+  if (p !== page) {
+    selected.clear();
+    tagFilter.clear();
+    $("search").value = "";
+  }
+  closeVideo();
+  closeArticle();
+  page = p;
+  document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
+  $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
+  $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
+  $("search").placeholder = SEARCH_HINT[p] || "";
+  applyView();
+  render();
+  scrollTo(0, 0);
+}
+const navigate = (p) => (location.hash === `#${p}` ? go(p) : (location.hash = `#${p}`));
+$("nav").onclick = (e) => {
+  const b = e.target.closest("button[data-page]");
+  if (b) navigate(b.dataset.page);
+};
+addEventListener("hashchange", () => go(location.hash.slice(1)));
 
+/* ---------- 標籤（情境分類，一個項目可有多個；與字卡的 type 互相獨立） ---------- */
 function renderTagBar(pool) {
   const counts = new Map();
   for (const c of pool) for (const t of tagsOf(c)) counts.set(t, (counts.get(t) || 0) + 1);
@@ -244,6 +279,40 @@ function tagInput(root) {
 }
 const cardTags = tagInput($("fTags"));
 const videoTags = tagInput($("vTags"));
+const articleTags = tagInput($("aTags"));
+const importTags = tagInput($("iTags"));
+
+/* ---------- 渲染 ---------- */
+function updateBar() {
+  $("editBtn").disabled = selected.size !== 1;
+  $("delBtn").disabled = selected.size === 0;
+  $("delBtn").textContent = selected.size > 1 ? `刪除 (${selected.size})` : "刪除";
+  const n = visible.filter((c) => selected.has(c.id)).length;
+  $("selAll").checked = visible.length > 0 && n === visible.length;
+  $("selAll").indeterminate = n > 0 && n < visible.length;
+}
+
+function renderHome() {
+  $("home").innerHTML = `
+    <h2 class="welcome">歡迎回來</h2>
+    <p class="muted">今天想學點什麼？</p>
+    <div class="tiles">
+      <button class="tile" data-go="cards"><b>${cards.length}</b><span>字卡</span></button>
+      <button class="tile" data-go="videos"><b>${videos.length}</b><span>影片</span></button>
+      <button class="tile" data-go="articles"><b>${articles.length}</b><span>文章</span></button>
+    </div>
+    <div class="homeactions">
+      <button data-act="quiz">開始遮罩測驗</button>
+      <button data-act="export" title="下載全部字卡、影片、文章（JSON 備份）">匯出備份</button>
+    </div>`;
+}
+$("home").onclick = (e) => {
+  const t = e.target.closest("[data-go]");
+  if (t) return navigate(t.dataset.go);
+  const b = e.target.closest("button[data-act]");
+  if (b?.dataset.act === "quiz") { setMask(true); navigate("cards"); }
+  if (b?.dataset.act === "export") exportBackup();
+};
 
 function renderVideos(q) {
   const list = visible = videos.filter((v) => matchTags(v) &&
@@ -259,12 +328,33 @@ function renderVideos(q) {
   updateBar();
 }
 
+function renderArticles(q) {
+  const list = visible = articles.filter((a) => matchTags(a) &&
+    (!q || [a.title || "", a.body || "", ...tagsOf(a)].join(" ").toLowerCase().includes(q)));
+  const preview = (b = "") => b.replace(/[#>*`_|\[\]()-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
+  $("cards").innerHTML = list.map((a) => `
+    <div class="card" data-id="${a.id}">
+      <div class="vline">
+        <input type="checkbox" class="sel" ${selected.has(a.id) ? "checked" : ""}>
+        <div>
+          <div class="vname">${esc(a.title || "（無標題）")}</div>
+          <div class="preview">${esc(preview(a.body))}</div>
+        </div>
+        <div class="english vcount">${fmtDate(a.createdAt)}</div>
+      </div>
+    </div>`).join("") || "<p>還沒有文章。</p>";
+  updateBar();
+}
+
 function render() {
-  const pool = typeFilter === "video" ? videos : cards;
+  if (page === "home") return renderHome();
+  if (viewing === "article") renderReader(); // 編輯後立即更新閱讀中的內容
+  const pool = poolOf();
   for (const id of [...selected]) if (!pool.some((c) => c.id === id)) selected.delete(id);
   renderTagBar(pool);
   const q = $("search").value.trim().toLowerCase();
-  if (typeFilter === "video") return renderVideos(q);
+  if (page === "videos") return renderVideos(q);
+  if (page === "articles") return renderArticles(q);
   const list = visible = cards.filter((c) =>
     (typeFilter === "all" || typeOf(c) === typeFilter) && matchTags(c) &&
     (!q || [c.thai, c.roman, c.english, ...tagsOf(c)].join(" ").toLowerCase().includes(q)));
@@ -284,33 +374,40 @@ function render() {
   updateBar();
 }
 
+$("typeTabs").onclick = (e) => {
+  const b = e.target.closest("button[data-type]");
+  if (!b) return;
+  typeFilter = b.dataset.type;
+  document.querySelectorAll("#typeTabs button").forEach((x) => x.classList.toggle("on", x === b));
+  render();
+};
 $("search").oninput = render;
-
 $("selAll").onchange = (e) => {
   for (const c of visible) e.target.checked ? selected.add(c.id) : selected.delete(c.id);
   render();
 };
+
+/* ---------- 新增 / 編輯 / 刪除（依目前頁面） ---------- */
+const OPEN_DLG = { cards: (x) => openDlg(x), videos: (x) => openVideoDlg(x), articles: (x) => openArticleDlg(x) };
+const COLL = { cards: "cards", videos: "videos", articles: "articles" };
+const UNIT = { cards: "張字卡", videos: "部影片", articles: "篇文章" };
+const nameOf = (x) => x.thai ?? (x.title || x.videoId || "");
+
+$("addBtn").onclick = () => OPEN_DLG[page]();
 $("editBtn").onclick = () => {
-  if (typeFilter === "video") {
-    const v = videos.find((x) => selected.has(x.id));
-    if (v) openVideoDlg(v);
-    return;
-  }
-  const c = cards.find((x) => selected.has(x.id));
-  if (c) openDlg(c);
+  const item = poolOf().find((x) => selected.has(x.id));
+  if (item) OPEN_DLG[page](item);
 };
 $("delBtn").onclick = async () => {
-  const isVideo = typeFilter === "video";
-  const items = (isVideo ? videos : cards).filter((c) => selected.has(c.id));
+  const items = poolOf().filter((c) => selected.has(c.id));
   if (!items.length) return;
-  const name = (x) => (isVideo ? x.title || x.videoId : x.thai);
-  const label = items.length === 1 ? `「${name(items[0])}」` : `${items.length} ${isVideo ? "部影片" : "張字卡"}`;
+  const label = items.length === 1 ? `「${nameOf(items[0])}」` : `${items.length} ${UNIT[page]}`;
   if (!confirm(`刪除${label}？`)) return;
-  await Promise.all(items.map((c) => deleteDoc(doc(db, isVideo ? "videos" : "cards", c.id))));
+  await Promise.all(items.map((c) => deleteDoc(doc(db, COLL[page], c.id))));
   selected.clear();
 };
 
-$("cards").onclick = async (e) => {
+$("cards").onclick = (e) => {
   const el = e.target.closest(".card");
   if (!el) return;
   if (e.target.matches("input.sel")) {
@@ -318,7 +415,8 @@ $("cards").onclick = async (e) => {
     updateBar();
     return;
   }
-  if (typeFilter === "video") return openVideo(videos.find((v) => v.id === el.dataset.id));
+  if (page === "videos") return openVideo(videos.find((v) => v.id === el.dataset.id));
+  if (page === "articles") return openArticle(articles.find((a) => a.id === el.dataset.id));
   const btn = e.target.closest("button[data-act]");
   // 點卡片（非按鈕）切換說明；選取文字或點說明內的連結/內容時不切換
   if (!btn) {
@@ -337,12 +435,10 @@ $("cards").onclick = async (e) => {
     return;
   }
   const c = cards.find((x) => x.id === el.dataset.id);
-  switch (btn.dataset.act) {
-    case "play1": speak(c.thai, 1); break;
-  }
+  if (btn.dataset.act === "play1") speak(c.thai, 1);
 };
 
-/* ---------- 新增 / 編輯 ---------- */
+/* ---------- 字卡對話框 ---------- */
 function openDlg(c) {
   editingId = c?.id ?? null;
   $("dlgTitle").textContent = c ? "編輯字卡" : "新增字卡";
@@ -354,10 +450,6 @@ function openDlg(c) {
   cardTags.set(c?.tags);
   $("dlg").showModal();
 }
-// 泰文不用空白分詞：貼上或輸入時自動移除所有空白（含全形空白、不換行空白、零寬字元）
-function stripSpaces(s) {
-  return s.replace(/[\s​-‍﻿]+/g, "");
-}
 $("fThai").addEventListener("input", (e) => {
   if (e.isComposing) return;
   const el = e.target;
@@ -368,22 +460,36 @@ $("fThai").addEventListener("input", (e) => {
   el.setSelectionRange(caret, caret);
 });
 
-// 從 AI 網頁複製時剪貼簿帶有 HTML；貼上時轉成 Markdown，標題/粗體/表格/清單才不會掉
+// 從 AI 網頁或文章複製時剪貼簿帶有 HTML；貼上時轉成 Markdown，標題/粗體/表格/清單才不會掉
 const turndown = new TurndownService({ headingStyle: "atx", bulletListMarker: "-", codeBlockStyle: "fenced" });
 turndown.use(gfm);
-$("fDetail").addEventListener("paste", (e) => {
-  const html = e.clipboardData.getData("text/html");
-  if (!html) return; // 純文字照常貼上
-  e.preventDefault();
-  const markdown = turndown.turndown(html).trim();
-  const t = e.target;
-  t.setRangeText(markdown, t.selectionStart, t.selectionEnd, "end");
-});
+function enableRichPaste(el) {
+  el.addEventListener("paste", (e) => {
+    const html = e.clipboardData.getData("text/html");
+    if (!html) return; // 純文字照常貼上
+    e.preventDefault();
+    el.setRangeText(turndown.turndown(html).trim(), el.selectionStart, el.selectionEnd, "end");
+  });
+}
+enableRichPaste($("fDetail"));
+enableRichPaste($("aBody"));
 
-$("addBtn").onclick = () => (typeFilter === "video" ? openVideoDlg() : openDlg());
+$("cancelBtn").onclick = () => $("dlg").close();
+$("form").onsubmit = async () => {
+  const data = {
+    type: $("fType").value,
+    thai: stripSpaces($("fThai").value),
+    roman: $("fRoman").value.trim(),
+    english: $("fEnglish").value.trim(),
+    detail: $("fDetail").value,
+    tags: cardTags.get(),
+  };
+  if (editingId) await updateDoc(doc(db, "cards", editingId), data);
+  else await addDoc(collection(db, "cards"), { ...data, createdAt: serverTimestamp() });
+};
 
 /* ---------- 匯出備份（JSON） ---------- */
-$("exportBtn").onclick = () => {
+function exportBackup() {
   const iso = (t) => (t?.toDate ? t.toDate().toISOString() : null);
   const data = {
     exportedAt: new Date().toISOString(),
@@ -395,17 +501,18 @@ $("exportBtn").onclick = () => {
       id: v.id, title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
       cues: v.cues ?? [], tags: tagsOf(v), createdAt: iso(v.createdAt),
     })),
+    articles: articles.map((a) => ({
+      id: a.id, title: a.title ?? "", body: a.body ?? "", tags: tagsOf(a), createdAt: iso(a.createdAt),
+    })),
   };
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-  a.download = `thai-cards-${data.exportedAt.slice(0, 10)}.json`;
+  a.download = `thai-learning-${data.exportedAt.slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-};
+}
 
-/* ---------- 批次匯入 ---------- */
-const importTags = tagInput($("iTags"));
-
+/* ---------- 批次匯入字卡 ---------- */
 // 一行一筆：泰文 | 拼音 | 英文（或 Tab 分隔）。泰文後面的 (v)(n)(adj) 詞性會併到英文後面。
 function parseImport(text) {
   const rows = [];
@@ -461,14 +568,12 @@ $("importForm").onsubmit = async (e) => {
 };
 
 /* ---------- 影片 ---------- */
-let unmountVideo = null;
-const browseEls = () => [document.querySelector(".toolbar"), $("tabs"), $("cards")];
-
 function openVideo(v) {
   if (!v) return;
   closeVideo();
-  browseEls().forEach((el) => (el.hidden = true));
-  $("player").hidden = false;
+  viewing = "video";
+  applyView();
+  scrollTo(0, 0);
   unmountVideo = mountVideo($("player"), v, {
     esc, ICON, onBack: closeVideo,
     addCard: (c) => addDoc(collection(db, "cards"), {
@@ -480,8 +585,8 @@ function openVideo(v) {
 function closeVideo() {
   if (unmountVideo) unmountVideo();
   unmountVideo = null;
-  $("player").hidden = true;
-  browseEls().forEach((el) => (el.hidden = false));
+  if (viewing === "video") viewing = null;
+  applyView();
 }
 
 function openVideoDlg(v) {
@@ -529,22 +634,55 @@ $("vform").onsubmit = async (e) => {
     btn.disabled = false;
   }
 };
-$("cancelBtn").onclick = () => $("dlg").close();
 
-$("form").onsubmit = async () => {
-  const data = {
-    type: $("fType").value,
-    thai: stripSpaces($("fThai").value),
-    roman: $("fRoman").value.trim(),
-    english: $("fEnglish").value.trim(),
-    detail: $("fDetail").value,
-    tags: cardTags.get(),
-  };
-  if (editingId) await updateDoc(doc(db, "cards", editingId), data);
-  else await addDoc(collection(db, "cards"), { ...data, createdAt: serverTimestamp() });
+/* ---------- 文章 ---------- */
+function renderReader() {
+  const a = articles.find((x) => x.id === currentArticleId);
+  if (!a) return closeArticle();
+  $("reader").innerHTML = `
+    <div class="readerbar">
+      <button id="aBack">← 返回</button>
+      <strong class="vtitle">${esc(a.title || "（無標題）")}</strong>
+      <button id="aEdit" class="icon" title="編輯">${ICON.edit}</button>
+    </div>
+    <article class="detail article-body" lang="th">${md(a.body)}</article>`;
+}
+function openArticle(a) {
+  if (!a) return;
+  closeVideo();
+  currentArticleId = a.id;
+  viewing = "article";
+  renderReader();
+  applyView();
+  scrollTo(0, 0);
+}
+function closeArticle() {
+  currentArticleId = null;
+  if (viewing === "article") viewing = null;
+  $("reader").innerHTML = "";
+  applyView();
+}
+$("reader").onclick = (e) => {
+  if (e.target.closest("#aBack")) closeArticle();
+  else if (e.target.closest("#aEdit")) openArticleDlg(articles.find((x) => x.id === currentArticleId));
 };
 
-/* ---------- 在詳細說明內反白泰文 → 浮窗：發音 / 加入字卡 ---------- */
+function openArticleDlg(a) {
+  editingArticleId = a?.id ?? null;
+  $("adlgTitle").textContent = a ? "編輯文章" : "新增文章";
+  $("aTitle").value = a?.title ?? "";
+  $("aBody").value = a?.body ?? "";
+  articleTags.set(a?.tags);
+  $("adlg").showModal();
+}
+$("aCancel").onclick = () => $("adlg").close();
+$("aform").onsubmit = async () => {
+  const data = { title: $("aTitle").value.trim(), body: $("aBody").value, tags: articleTags.get() };
+  if (editingArticleId) await updateDoc(doc(db, "articles", editingArticleId), data);
+  else await addDoc(collection(db, "articles"), { ...data, createdAt: serverTimestamp() });
+};
+
+/* ---------- 反白泰文 → 浮窗：發音 / 加入字卡（字卡說明、文章、影片字幕） ---------- */
 const selPop = $("selPop");
 $("selPlay").innerHTML = `${ICON.play} 發音`;
 $("selAdd").innerHTML = `${ICON.plus} 加入字卡`;
@@ -559,10 +697,10 @@ function checkSelection() {
   if (!sel.rangeCount || sel.isCollapsed) return hideSelPop();
   const range = sel.getRangeAt(0);
   const node = range.commonAncestorContainer;
-  const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail");
+  const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail, .cue");
   if (!host) return hideSelPop();
   // 只取選取範圍內的泰文（連續泰文片段，片段間用空白相連）
-  selThai = (sel.toString().match(/[\u0E00-\u0E7F]+(?:[ \t]+[\u0E00-\u0E7F]+)*/g) || []).join(" ");
+  selThai = (sel.toString().match(/[฀-๿]+(?:[ \t]+[฀-๿]+)*/g) || []).join(" ");
   if (!selThai) return hideSelPop();
   $("selText").textContent = selThai;
   selPop.hidden = false;
@@ -603,5 +741,7 @@ $("selAdd").onclick = () => {
   $("fRoman").focus();
 };
 
+/* ---------- 啟動 ---------- */
+go(location.hash.slice(1));
 
 

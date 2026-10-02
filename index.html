@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
@@ -8,12 +8,18 @@
   // 先於畫面渲染套用已存的主題，避免閃爍；沒存過就跟隨系統
   try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
-<title>泰語字卡</title>
+<title>泰語學習</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>泰語字卡</h1>
+  <h1><a href="#home">泰語學習</a></h1>
+  <nav id="nav" hidden>
+    <button data-page="home">首頁</button>
+    <button data-page="cards">字卡</button>
+    <button data-page="videos">影片</button>
+    <button data-page="articles">文章</button>
+  </nav>
   <div class="hdr-right">
     <button id="maskBtn" title="遮罩：隱藏泰文與拼音，點一下顯示答案">遮罩</button>
     <button id="themeBtn" title="切換淺色／深色"></button>
@@ -22,29 +28,38 @@
 </header>
 
 <main id="app" hidden>
-  <div class="toolbar">
-    <input id="search" placeholder="搜尋泰文 / 拼音 / 英文…">
-    <button id="exportBtn" title="下載全部字卡與影片（JSON 備份）">匯出</button>
-    <button id="importBtn" title="一次貼上多筆資料">匯入</button>
-    <button id="editBtn" disabled>編輯</button>
-    <button id="delBtn" disabled>刪除</button>
-    <button id="addBtn">＋ 新增</button>
+  <!-- 首頁 -->
+  <section id="home" hidden></section>
+
+  <!-- 列表頁（字卡／影片／文章共用） -->
+  <div id="browse" hidden>
+    <div class="toolbar">
+      <input id="search">
+      <button id="importBtn" title="一次貼上多筆資料">匯入</button>
+      <button id="editBtn" disabled>編輯</button>
+      <button id="delBtn" disabled>刪除</button>
+      <button id="addBtn">＋ 新增</button>
+    </div>
+    <div class="tabs" id="tabs">
+      <input type="checkbox" id="selAll" title="全選（目前列表）">
+      <span id="typeTabs">
+        <button data-type="all" class="on">全部</button>
+        <button data-type="word">單字</button>
+        <button data-type="sentence">句子</button>
+      </span>
+    </div>
+    <div class="tagbar" id="tagbar" hidden></div>
+    <div id="cards"></div>
   </div>
-  <div class="tabs" id="tabs">
-    <input type="checkbox" id="selAll" title="全選（目前列表）">
-    <button data-type="all" class="on">全部</button>
-    <button data-type="word">單字</button>
-    <button data-type="sentence">句子</button>
-    <button data-type="video">影片</button>
-  </div>
-  <div class="tagbar" id="tagbar" hidden></div>
-  <div id="cards"></div>
+
+  <!-- 影片播放頁 / 文章閱讀頁 -->
   <div id="player" hidden></div>
+  <div id="reader" hidden></div>
 </main>
 
 <p id="loginHint">請先以 Google 登入。</p>
 
-<!-- 在詳細說明內反白泰文時出現的浮窗 -->
+<!-- 反白泰文時出現的浮窗（字卡說明、文章、影片字幕皆可用） -->
 <div id="selPop" hidden>
   <span id="selText" lang="th"></span>
   <button type="button" id="selPlay" title="發音"></button>
@@ -118,8 +133,23 @@
   </form>
 </dialog>
 
+<dialog id="adlg">
+  <form id="aform" method="dialog">
+    <h2 id="adlgTitle">新增文章</h2>
+    <label>標題 <input id="aTitle" required></label>
+    <label>標籤（情境，點選或輸入後按 Enter）
+      <div class="taginput" id="aTags"><input placeholder="例如：新聞"></div>
+    </label>
+    <label>內容（支援 Markdown，可直接貼 AI 回答或網頁文章）
+      <textarea id="aBody" rows="14" required lang="th"></textarea>
+    </label>
+    <div class="row">
+      <button type="button" id="aCancel">取消</button>
+      <button type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>
-
-
