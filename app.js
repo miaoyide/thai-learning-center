@@ -4,7 +4,7 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 import { initializeApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp }
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, Timestamp }
   from "firebase/firestore";
 import { firebaseConfig } from "./firebase-config.js";
 import { buildCues, cuesToTranscript, extractVideoId } from "./subtitles.js";
@@ -113,6 +113,7 @@ $("tabs").onclick = (e) => {
   // 影片與字卡是不同集合，切換時清掉勾選，避免誤刪
   if ((b.dataset.type === "video") !== (typeFilter === "video")) { selected.clear(); tagFilter.clear(); }
   typeFilter = b.dataset.type;
+  $("importBtn").hidden = typeFilter === "video"; // 匯入只用於字卡
   document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
   render();
 };
@@ -380,6 +381,63 @@ $("fDetail").addEventListener("paste", (e) => {
 });
 
 $("addBtn").onclick = () => (typeFilter === "video" ? openVideoDlg() : openDlg());
+
+/* ---------- 批次匯入 ---------- */
+const importTags = tagInput($("iTags"));
+
+// 一行一筆：泰文 | 拼音 | 英文（或 Tab 分隔）。泰文後面的 (v)(n)(adj) 詞性會併到英文後面。
+function parseImport(text) {
+  const rows = [];
+  for (const line of text.replace(/\r/g, "").split("\n")) {
+    if (!line.trim()) continue;
+    let [thai = "", roman = "", english = ""] = line.split(/\t|\|/).map((s) => s.trim());
+    const m = thai.match(/^(.*?)\s*[（(]\s*([A-Za-z.]+)\s*[)）]\s*$/);
+    const pos = m ? m[2] : "";
+    if (m) thai = m[1];
+    thai = stripSpaces(thai);
+    if (!thai) continue;
+    rows.push({ thai, roman, english: pos ? `${english} (${pos})`.trim() : english });
+  }
+  return rows;
+}
+const updateImportCount = () => {
+  const n = parseImport($("importText").value).length;
+  $("importCount").textContent = n ? `將匯入 ${n} 筆` : "";
+};
+$("importText").addEventListener("input", updateImportCount);
+$("importBtn").onclick = () => {
+  $("iType").value = typeFilter === "sentence" ? "sentence" : "word";
+  importTags.set([]);
+  updateImportCount();
+  $("importDlg").showModal();
+};
+$("importCancel").onclick = () => $("importDlg").close();
+$("importForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const rows = parseImport($("importText").value);
+  if (!rows.length) return alert("沒有可匯入的資料");
+  if (rows.length > 400) return alert("一次最多匯入 400 筆，請分批");
+  const type = $("iType").value;
+  const tags = importTags.get();
+  const btn = e.submitter;
+  btn.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    const base = Date.now();
+    // 時間依序遞減，列表（新到舊）就會維持貼上的順序
+    rows.forEach((r, i) => batch.set(doc(collection(db, "cards")), {
+      type, ...r, detail: "", tags, createdAt: Timestamp.fromMillis(base - i),
+    }));
+    await batch.commit();
+    $("importText").value = "";
+    updateImportCount();
+    $("importDlg").close();
+  } catch (err) {
+    alert("匯入失敗：" + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 /* ---------- 影片 ---------- */
 let unmountVideo = null;

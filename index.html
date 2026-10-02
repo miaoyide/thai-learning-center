@@ -24,6 +24,7 @@
 <main id="app" hidden>
   <div class="toolbar">
     <input id="search" placeholder="搜尋泰文 / 拼音 / 英文…">
+    <button id="importBtn" title="一次貼上多筆資料">匯入</button>
     <button id="editBtn" disabled>編輯</button>
     <button id="delBtn" disabled>刪除</button>
     <button id="addBtn">＋ 新增</button>
@@ -67,6 +68,27 @@
     <div class="row">
       <button type="button" id="cancelBtn">取消</button>
       <button type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="importDlg">
+  <form id="importForm" method="dialog">
+    <h2>批次匯入字卡</h2>
+    <p class="hint">一行一筆：<code>泰文 | 羅馬拼音 | 英文</code>（也可用 Tab 分隔，可直接從試算表貼上）。泰文後面的詞性如 <code>(v)</code> 會自動移到英文後面。</p>
+    <label>分類（套用到全部）
+      <select id="iType"><option value="word">單字</option><option value="sentence">句子</option></select>
+    </label>
+    <label>標籤（套用到全部，可留空）
+      <div class="taginput" id="iTags"><input placeholder="例如：日常"></div>
+    </label>
+    <label>內容
+      <textarea id="importText" rows="10" placeholder="นั่ง | nâng | sit&#10;ยืน (v) | yuuen | stand"></textarea>
+    </label>
+    <div class="row">
+      <span class="hint" id="importCount"></span>
+      <button type="button" id="importCancel">取消</button>
+      <button type="submit">匯入</button>
     </div>
   </form>
 </dialog>
