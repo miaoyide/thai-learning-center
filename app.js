@@ -125,38 +125,90 @@ $("maskBtn").onclick = () => setMask(!maskOn);
 try { setMask(localStorage.getItem("mask") === "1"); } catch (e) {}
 
 /* ---------- Auth ---------- */
+// 訪客模式：不登入、純閱讀。不能新增／編輯／刪除、不能做隨堂測驗（介面隱藏＋程式內雙重擋下；
+// 真正的寫入限制由 Firestore 規則負責：只有擁有者帳號能寫入）。
+let guest = false;
+try { guest = sessionStorage.getItem("guest") === "1"; } catch (e) {}
+let signedIn = false;
+const readOnly = () => guest && !signedIn;
+
 const watch = (name, label, set) =>
   onSnapshot(query(collection(db, name), orderBy("createdAt", "desc")), (snap) => {
     set(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     render();
-  }, (e) => (name === "cards"
-    ? alert("讀取失敗：" + e.message)
-    : console.warn(`${label}讀取失敗（Firestore 規則是否已加入 ${name}？）`, e)));
+  }, (e) => {
+    if (name === "cards" && guest && !signedIn) {
+      alert("訪客模式目前無法讀取資料（擁有者尚未開放公開讀取）。");
+      return exitGuest();
+    }
+    if (name === "cards") alert("讀取失敗：" + e.message);
+    else console.warn(`${label}讀取失敗（Firestore 規則是否已加入 ${name}？）`, e);
+  });
+
+function startData() {
+  stopData();
+  unsubs = [
+    watch("cards", "字卡", (v) => (cards = v)),
+    watch("videos", "影片", (v) => (videos = v)),
+    watch("articles", "文章", (v) => (articles = v)),
+  ];
+}
+function stopData() {
+  unsubs.forEach((u) => u());
+  unsubs = [];
+  cards = [];
+  videos = [];
+  articles = [];
+  closeVideo();
+  closeArticle();
+}
+
+function applyAuthUI() {
+  const active = signedIn || guest;
+  document.body.classList.toggle("guest", guest && !signedIn);
+  $("app").hidden = !active;
+  $("nav").hidden = !active;
+  $("loginHint").hidden = active;
+  $("authBox").innerHTML = signedIn
+    ? `<button id="outBtn">登出</button>`
+    : guest
+      ? `<button id="outBtn">離開訪客模式</button><span class="badge">訪客・唯讀</span>`
+      : `<button id="inBtn">Google 登入</button>`;
+  if ($("outBtn")) $("outBtn").onclick = () => (signedIn ? signOut(auth) : exitGuest());
+  if ($("inBtn")) $("inBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
+  if (guest && !signedIn) {
+    if (typeFilter === "weak") setTypeFilter("all"); // 「需加強」是擁有者的個人標記，訪客看不到
+    if (page === "quiz") navigate("home");
+  }
+}
+
+function enterGuest() {
+  guest = true;
+  try { sessionStorage.setItem("guest", "1"); } catch (e) {}
+  startData();
+  applyAuthUI();
+  go(location.hash.slice(1));
+}
+function exitGuest() {
+  guest = false;
+  try { sessionStorage.removeItem("guest"); } catch (e) {}
+  stopData();
+  applyAuthUI();
+}
+$("guestBtn").onclick = enterGuest;
 
 onAuthStateChanged(auth, (user) => {
-  $("app").hidden = !user;
-  $("nav").hidden = !user;
-  $("loginHint").hidden = !!user;
-  $("authBox").innerHTML = user
-    ? `<button id="outBtn">登出</button>`
-    : `<button id="inBtn">Google 登入</button>`;
-  if (user) {
-    $("outBtn").onclick = () => signOut(auth);
-    unsubs = [
-      watch("cards", "字卡", (v) => (cards = v)),
-      watch("videos", "影片", (v) => (videos = v)),
-      watch("articles", "文章", (v) => (articles = v)),
-    ];
+  signedIn = !!user;
+  if (signedIn) {
+    guest = false;
+    try { sessionStorage.removeItem("guest"); } catch (e) {}
+    startData();
+  } else if (guest) {
+    startData(); // 重新整理後仍停留在訪客模式
   } else {
-    $("inBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
-    unsubs.forEach((u) => u());
-    unsubs = [];
-    cards = [];
-    videos = [];
-    articles = [];
-    closeVideo();
-    closeArticle();
+    stopData();
   }
+  applyAuthUI();
 });
 
 /* ---------- 語音 ---------- */
@@ -216,6 +268,7 @@ function applyView() {
 
 function go(p) {
   if (!PAGES.includes(p)) p = "home";
+  if (readOnly() && p === "quiz") p = "home"; // 訪客不能做隨堂測驗
   if (p !== page) {
     selected.clear();
     tagFilter.clear();
@@ -481,6 +534,7 @@ function renderQuiz(force = false) {
 }
 
 async function markQuiz(id, kind) {
+  if (readOnly()) return;
   const c = cards.find((x) => x.id === id);
   if (!c || quizResult.get(id) === kind) return;
   quizResult.set(id, kind);
@@ -568,12 +622,14 @@ const COLL = { cards: "cards", videos: "videos", articles: "articles" };
 const UNIT = { cards: "張字卡", videos: "部影片", articles: "篇文章" };
 const nameOf = (x) => x.thai ?? (x.title || x.videoId || "");
 
-$("addBtn").onclick = () => OPEN_DLG[page]();
+$("addBtn").onclick = () => { if (!readOnly()) OPEN_DLG[page](); };
 $("editBtn").onclick = () => {
+  if (readOnly()) return;
   const item = poolOf().find((x) => selected.has(x.id));
   if (item) OPEN_DLG[page](item);
 };
 $("delBtn").onclick = async () => {
+  if (readOnly()) return;
   const items = poolOf().filter((c) => selected.has(c.id));
   if (!items.length) return;
   const label = items.length === 1 ? `「${nameOf(items[0])}」` : `${items.length} ${UNIT[page]}`;
@@ -673,6 +729,7 @@ $("form").onsubmit = async () => {
 
 /* ---------- 匯出備份（JSON） ---------- */
 function exportBackup() {
+  if (readOnly()) return;
   const iso = (t) => (t?.toDate ? t.toDate().toISOString() : null);
   const data = {
     exportedAt: new Date().toISOString(),
@@ -719,6 +776,7 @@ const updateImportCount = () => {
 };
 $("importText").addEventListener("input", updateImportCount);
 $("importBtn").onclick = () => {
+  if (readOnly()) return;
   $("iType").value = typeFilter === "sentence" ? "sentence" : "word";
   importTags.set([]);
   updateImportCount();
@@ -761,7 +819,7 @@ function openVideo(v) {
   scrollTo(0, 0);
   unmountVideo = mountVideo($("player"), v, {
     esc, ICON, onBack: closeVideo,
-    addCard: (c) => addDoc(collection(db, "cards"), {
+    addCard: (c) => readOnly() ? Promise.reject(new Error("訪客模式不能新增字卡")) : addDoc(collection(db, "cards"), {
       type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", tags: v.tags ?? [],
       createdAt: serverTimestamp(),
     }),
@@ -852,7 +910,7 @@ function closeArticle() {
 }
 $("reader").onclick = (e) => {
   if (e.target.closest("#aBack")) closeArticle();
-  else if (e.target.closest("#aEdit")) openArticleDlg(articles.find((x) => x.id === currentArticleId));
+  else if (e.target.closest("#aEdit") && !readOnly()) openArticleDlg(articles.find((x) => x.id === currentArticleId));
 };
 
 function openArticleDlg(a) {
@@ -926,6 +984,7 @@ selPop.addEventListener("mousedown", (e) => e.preventDefault());
 
 $("selPlay").onclick = () => speak(selThai, 1);
 $("selAdd").onclick = () => {
+  if (readOnly()) return;
   const thai = selThai;
   hideSelPop();
   getSelection().removeAllRanges();
@@ -937,6 +996,9 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
 
 
 

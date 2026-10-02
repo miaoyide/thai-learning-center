@@ -214,3 +214,14 @@ button.say:hover { opacity:.7; }
 .quizact button.on[data-q="weak"] { background:var(--weak); border-color:var(--weak); color:#fff; }
 .readerbar button[data-act="weakonly"].on { background:var(--weak); border-color:var(--weak); color:#fff; }
 
+
+/* 登入頁與訪客模式（唯讀） */
+.loginbox { text-align:center; padding:48px 16px; }
+.loginbox button { padding:8px 18px; }
+.badge { font-size:.75rem; color:var(--muted); border:1px solid var(--border); border-radius:10px; padding:2px 8px; white-space:nowrap; }
+#authBox { display:flex; align-items:center; gap:8px; }
+.guest #addBtn, .guest #editBtn, .guest #delBtn, .guest #importBtn,
+.guest #selAll, .guest input.sel,
+.guest #weakTab, .guest [data-go="weak"], .guest [data-act="quiz"], .guest [data-act="export"],
+.guest #aEdit, .guest #selAdd, .guest .cue [data-act="add"],
+.guest .flag, .guest .mynote, .guest .homeactions { display:none !important; }

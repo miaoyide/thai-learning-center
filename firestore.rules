@@ -1,16 +1,20 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 讀取：任何人都可以（訪客模式）；寫入：只有擁有者帳號
     match /cards/{id} {
-      allow read, write: if request.auth != null
+      allow read: if true;
+      allow write: if request.auth != null
         && request.auth.token.email == "miaoyide@gmail.com";
     }
     match /videos/{id} {
-      allow read, write: if request.auth != null
+      allow read: if true;
+      allow write: if request.auth != null
         && request.auth.token.email == "miaoyide@gmail.com";
     }
     match /articles/{id} {
-      allow read, write: if request.auth != null
+      allow read: if true;
+      allow write: if request.auth != null
         && request.auth.token.email == "miaoyide@gmail.com";
     }
   }
