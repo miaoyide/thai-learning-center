@@ -225,3 +225,11 @@ button.say:hover { opacity:.7; }
 .guest #weakTab, .guest [data-go="weak"], .guest [data-act="quiz"], .guest [data-act="export"],
 .guest #aEdit, .guest #selAdd, .guest .cue [data-act="add"],
 .guest .flag, .guest .mynote, .guest .homeactions { display:none !important; }
+
+/* 訪客模式：勾選框隱藏後，列的欄位少一欄 */
+.guest .line { grid-template-columns:auto minmax(0,1.3fr) minmax(0,1fr); }
+.guest .vline { grid-template-columns:minmax(0,1fr) 4em; }
+@media (max-width:600px) {
+  .guest .line { grid-template-columns:auto minmax(0,1fr); }
+  .guest .line .english { grid-column:2; grid-row:2; }
+}
