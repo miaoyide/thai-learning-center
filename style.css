@@ -1,10 +1,5 @@
-﻿:root { --bg:#e5e5e5; --card:#f0f0f0; --fg:#2a2a2a; --muted:#5e5e5e; --accent:#3566c9; --border:#cbcbcb; --detail-bg:#dbdbdb; --code-bg:#cecece; --roman:#2f6b3a; --hover:#f2f2f2; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#16181c; --card:#20232a; --fg:#e8e8e8; --muted:#999; --accent:#6c9cff; --border:#33373f; --detail-bg:#1e1f20; --code-bg:#2d2f31; --roman:#7bc67e; --hover:#20232a; } }
-:root[data-theme="dark"] { --bg:#16181c; --card:#20232a; --fg:#e8e8e8; --muted:#999; --accent:#6c9cff; --border:#33373f; --detail-bg:#1e1f20; --code-bg:#2d2f31; --roman:#7bc67e; --hover:#20232a; }
-:root { color-scheme: light dark; }
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
-* { box-sizing: border-box; }
+﻿/* ===== 主題變數：白天（預設）；其他主題（Hollow Knight、Cyberpunk 2077、Expedition 33、Confluence、Notion、Obsidian）見檔案最後 ===== */
+:root { color-scheme:light; --bg:#e5e5e5; --card:#f0f0f0; --fg:#2a2a2a; --muted:#5e5e5e; --accent:#3566c9; --on-accent:#fff; --border:#cbcbcb; --detail-bg:#dbdbdb; --code-bg:#cecece; --roman:#2f6b3a; --hover:#f2f2f2; --weak:#d9483f; }
 body { margin:0; font-family: "Google Sans", "Google Sans Text", Roboto, "Segoe UI", system-ui, "Noto Sans Thai", "Noto Sans TC", "Microsoft JhengHei", sans-serif; background:var(--bg); color:var(--fg); }
 header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border); }
 h1 { font-size:1.2rem; margin:0; }
@@ -13,7 +8,7 @@ button { font:inherit; padding:6px 12px; border:1px solid var(--border); backgro
 button:hover { border-color:var(--accent); }
 .toolbar { display:flex; gap:8px; margin-bottom:16px; }
 .tabs { display:flex; align-items:center; gap:6px; margin-bottom:14px; }
-.tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.tabs button.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 select { font:inherit; width:100%; padding:8px; margin-top:4px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--fg); }
 input, textarea { font:inherit; width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--fg); }
 .ico { vertical-align:-0.15em; }
@@ -105,8 +100,8 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .tagbar { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
 .tagbtn { padding:2px 10px; border-radius:14px; font-size:.85rem; }
 .tagbtn span { color:var(--muted); font-size:.75rem; margin-left:2px; }
-.tagbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-.tagbtn.on span { color:#fff; opacity:.8; }
+.tagbtn.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+.tagbtn.on span { color:var(--on-accent); opacity:.8; }
 .taginput { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:4px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; background:var(--card); }
 .taginput input { flex:1; min-width:6em; border:none; padding:4px; background:none; outline:none; margin:0; }
 .chip { display:inline-flex; align-items:center; gap:2px; font-size:.85rem; color:var(--accent); background:var(--detail-bg); border-radius:10px; padding:1px 4px 1px 8px; }
@@ -114,7 +109,7 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .chip button:hover { color:var(--fg); }
 
 /* 遮罩（自我測驗） */
-#maskBtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+#maskBtn.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 .mask .card:not(.reveal) :is(.thai, .roman), .card.quiz:not(.reveal) :is(.thai, .roman) {
   color:transparent !important; background:var(--border); border-radius:6px; user-select:none;
   width:fit-content; max-width:100%; min-width:4em; text-shadow:none;
@@ -195,9 +190,6 @@ button.say:hover { opacity:.7; }
 }
 
 /* 需加強標記與備註 */
-:root { --weak:#d9483f; }
-:root[data-theme="dark"] { --weak:#ff7b72; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --weak:#ff7b72; } }
 .flag { display:inline-flex; margin-right:6px; color:var(--weak); vertical-align:-.12em; }
 .card:not(.weak) .flag { display:none; }
 .card.weak { box-shadow:inset 3px 0 0 var(--weak); }
@@ -210,7 +202,7 @@ button.say:hover { opacity:.7; }
 .quizact { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
 .card.quiz:not(.reveal) .quizact { display:none; }
 .quizact .qnote { flex:1; min-width:10em; width:auto; padding:5px 8px; }
-.quizact button.on[data-q="ok"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+.quizact button.on[data-q="ok"] { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 .quizact button.on[data-q="weak"] { background:var(--weak); border-color:var(--weak); color:#fff; }
 .readerbar button[data-act="weakonly"].on { background:var(--weak); border-color:var(--weak); color:#fff; }
 
@@ -233,3 +225,181 @@ button.say:hover { opacity:.7; }
   .guest .line { grid-template-columns:auto minmax(0,1fr); }
   .guest .line .english { grid-column:2; grid-row:2; }
 }
+
+
+/* ===== 主題選單 ===== */
+.themepick { position:relative; }
+#themeMenu { position:absolute; right:0; top:calc(100% + 6px); z-index:60; min-width:220px; padding:4px; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.3); }
+#themeMenu button { display:flex; align-items:center; gap:10px; width:100%; border:none; background:none; text-align:left; padding:7px 10px; border-radius:6px; }
+#themeMenu button:hover, #themeMenu button.on { background:var(--detail-bg); }
+#themeMenu .sw { display:inline-flex; flex:none; }
+#themeMenu .sw i { width:14px; height:14px; border:1px solid rgba(128,128,128,.5); margin-right:-4px; border-radius:50%; }
+#themeMenu .nm { flex:1; white-space:nowrap; }
+#themeMenu .ck { opacity:0; color:var(--accent); }
+#themeMenu button.on .ck { opacity:1; }
+
+/* ===== 主題：Cyberpunk 2077（霓虹黃、青、紅，稜角分明） ===== */
+:root[data-theme="cyberpunk"] { color-scheme:dark; --bg:#0a0a0f; --card:#13131c; --fg:#ecebf5; --muted:#8a8aa6; --accent:#fcee0a; --on-accent:#0a0a0f; --border:#2c2c40; --detail-bg:#0f0f17; --code-bg:#1b1b29; --roman:#00f0ff; --hover:#191925; --weak:#ff003c; }
+[data-theme="cyberpunk"] body {
+  background:
+    radial-gradient(circle at 12% -8%, rgba(255,0,60,.16), transparent 42%),
+    radial-gradient(circle at 100% 0, rgba(0,240,255,.12), transparent 38%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px),
+    var(--bg);
+  background-attachment:fixed;
+}
+[data-theme="cyberpunk"] ::selection { background:var(--accent); color:#000; }
+[data-theme="cyberpunk"] :is(button, input, textarea, select, dialog, .detail, .tile, .taginput, .tagmenu, #themeMenu, #selPop, .chip, .tagbtn, .card, .thai, .roman, .vplayer iframe) { border-radius:0 !important; }
+[data-theme="cyberpunk"] header { border-bottom:1px solid var(--accent); box-shadow:0 1px 14px rgba(252,238,10,.28); }
+[data-theme="cyberpunk"] h1 a { color:var(--accent); text-shadow:0 0 10px rgba(252,238,10,.55); letter-spacing:.12em; font-weight:800; }
+[data-theme="cyberpunk"] #nav button { text-transform:uppercase; letter-spacing:.06em; }
+[data-theme="cyberpunk"] #nav button.on { background:transparent; color:var(--accent); box-shadow:inset 0 -2px 0 var(--accent); }
+[data-theme="cyberpunk"] button:hover { border-color:var(--accent); box-shadow:0 0 10px rgba(252,238,10,.35); }
+[data-theme="cyberpunk"] :is(.tabs button.on, .tagbtn.on, #maskBtn.on, .quizact button.on[data-q="ok"]) { box-shadow:0 0 12px rgba(252,238,10,.55); font-weight:700; }
+[data-theme="cyberpunk"] :is(input, textarea, select):focus { outline:1px solid var(--accent); box-shadow:0 0 10px rgba(252,238,10,.3); }
+[data-theme="cyberpunk"] .tile { border:1px solid var(--border); clip-path:polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+[data-theme="cyberpunk"] .tile b { text-shadow:0 0 12px rgba(252,238,10,.5); }
+[data-theme="cyberpunk"] .welcome { color:var(--accent); text-transform:uppercase; letter-spacing:.14em; text-shadow:0 0 12px rgba(252,238,10,.45); }
+[data-theme="cyberpunk"] .roman, [data-theme="cyberpunk"] .cue .roman { text-shadow:0 0 8px rgba(0,240,255,.35); }
+[data-theme="cyberpunk"] .card:hover { background:var(--hover); }
+[data-theme="cyberpunk"] .detail { border-left:2px solid var(--accent); }
+[data-theme="cyberpunk"] dialog { border:1px solid var(--accent); box-shadow:0 0 28px rgba(252,238,10,.22); }
+[data-theme="cyberpunk"] dialog::backdrop { background:rgba(0,0,0,.72); }
+[data-theme="cyberpunk"] .cue.on { box-shadow:inset 3px 0 0 var(--accent), 0 0 14px rgba(252,238,10,.18); }
+
+/* ===== 主題：Expedition 33（Belle Époque 夜空、古金、象牙白、緋紅） ===== */
+:root[data-theme="expedition"] { color-scheme:dark; --bg:#0e1424; --card:#161f35; --fg:#f0e9d8; --muted:#a2a8b8; --accent:#d8b25a; --on-accent:#14110a; --border:#2d3856; --detail-bg:#111a2e; --code-bg:#1d2845; --roman:#9cc4e4; --hover:#1a2540; --weak:#e0525e; }
+[data-theme="expedition"] body {
+  background:
+    radial-gradient(ellipse at 50% -22%, rgba(216,178,90,.16), transparent 58%),
+    radial-gradient(ellipse at 50% 125%, rgba(156,196,228,.10), transparent 52%),
+    var(--bg);
+  background-attachment:fixed;
+}
+[data-theme="expedition"] :is(h1, h2, h3, #nav button, .welcome, .tile b, .tile span, .vtitle, .vname, .readerbar strong, .quizhint, dialog h2) { font-family:"Cormorant Garamond", "Palatino Linotype", "Book Antiqua", "Noto Serif TC", "Songti TC", PMingLiU, Georgia, serif; letter-spacing:.04em; }
+[data-theme="expedition"] header { border-bottom:3px double rgba(216,178,90,.55); }
+[data-theme="expedition"] h1 a { color:var(--accent); font-size:1.15em; letter-spacing:.12em; }
+[data-theme="expedition"] #nav button.on { background:transparent; color:var(--accent); box-shadow:inset 0 -1px 0 var(--accent); }
+[data-theme="expedition"] :is(button, input, textarea, select, .taginput) { border-radius:2px; border-color:rgba(216,178,90,.32); }
+[data-theme="expedition"] button:hover { border-color:var(--accent); }
+[data-theme="expedition"] :is(.tabs button.on, .tagbtn.on, #maskBtn.on, .quizact button.on[data-q="ok"]) { font-weight:700; }
+[data-theme="expedition"] .card { border-bottom-color:rgba(216,178,90,.18); }
+[data-theme="expedition"] #cards { border-top-color:rgba(216,178,90,.35); }
+[data-theme="expedition"] .tile { border:1px solid rgba(216,178,90,.4); border-radius:2px; box-shadow:inset 0 0 0 4px var(--card), inset 0 0 0 5px rgba(216,178,90,.28); }
+[data-theme="expedition"] .tile b { font-size:2.3rem; font-weight:600; }
+[data-theme="expedition"] .welcome { color:var(--accent); font-weight:500; letter-spacing:.2em; font-size:2rem; }
+[data-theme="expedition"] .detail { border:1px solid rgba(216,178,90,.22); border-radius:2px; }
+[data-theme="expedition"] dialog { border:1px solid rgba(216,178,90,.5); border-radius:2px; box-shadow:0 0 0 4px var(--bg), 0 0 0 5px rgba(216,178,90,.3), 0 10px 40px rgba(0,0,0,.6); }
+[data-theme="expedition"] dialog::backdrop { background:rgba(4,7,14,.78); }
+[data-theme="expedition"] .thai { font-weight:600; }
+
+
+/* ===== 主題：Hollow Knight（藍黑洞窟、蒼白骨色、靈魂藍微光，克制安靜） ===== */
+:root[data-theme="hollow"] { color-scheme:dark; --bg:#0b0e16; --card:#131823; --fg:#e3e6ee; --muted:#8a93a6; --accent:#bcd6f0; --on-accent:#0b0e16; --border:#232b3b; --detail-bg:#0f131c; --code-bg:#1a2130; --roman:#7fc8c0; --hover:#171d2b; --weak:#e0605a; }
+[data-theme="hollow"] body {
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(188,214,240,.10), transparent 55%),
+    radial-gradient(ellipse at 50% 130%, rgba(0,0,0,.6), transparent 60%),
+    var(--bg);
+  background-attachment:fixed;
+}
+[data-theme="hollow"] header { border-bottom:1px solid transparent; border-image:linear-gradient(90deg, transparent, rgba(188,214,240,.55), transparent) 1; }
+[data-theme="hollow"] :is(h1, h2, h3, #nav button, .welcome, .tile b, .tile span, .vtitle, .readerbar strong, dialog h2) { font-family:"Trajan Pro", "Cinzel", "Palatino Linotype", "Book Antiqua", "Noto Serif TC", "Songti TC", Georgia, serif; letter-spacing:.1em; }
+[data-theme="hollow"] h1 a { color:var(--accent); letter-spacing:.22em; text-shadow:0 0 12px rgba(188,214,240,.4); }
+[data-theme="hollow"] #nav button.on { background:transparent; color:var(--accent); box-shadow:inset 0 -1px 0 var(--accent); }
+[data-theme="hollow"] :is(button, input, textarea, select, .taginput) { border-radius:3px; }
+[data-theme="hollow"] button:hover { border-color:var(--accent); box-shadow:0 0 10px rgba(188,214,240,.2); }
+[data-theme="hollow"] :is(.tabs button.on, .tagbtn.on, #maskBtn.on, .quizact button.on[data-q="ok"]) { font-weight:700; box-shadow:0 0 12px rgba(188,214,240,.35); }
+[data-theme="hollow"] :is(input, textarea, select):focus { outline:1px solid var(--accent); }
+[data-theme="hollow"] .tile { border:1px solid rgba(188,214,240,.25); border-radius:3px; box-shadow:inset 0 0 22px rgba(188,214,240,.05); }
+[data-theme="hollow"] .tile b { text-shadow:0 0 14px rgba(188,214,240,.4); }
+[data-theme="hollow"] .welcome { color:var(--accent); font-weight:400; letter-spacing:.28em; text-shadow:0 0 16px rgba(188,214,240,.35); }
+[data-theme="hollow"] .detail { border:1px solid rgba(188,214,240,.14); border-radius:3px; }
+[data-theme="hollow"] dialog { border:1px solid rgba(188,214,240,.35); border-radius:3px; box-shadow:0 0 30px rgba(188,214,240,.12), 0 10px 40px rgba(0,0,0,.7); }
+[data-theme="hollow"] dialog::backdrop { background:rgba(2,4,9,.8); }
+[data-theme="hollow"] .cue.on { box-shadow:inset 2px 0 0 var(--accent); }
+
+/* ===== 主題：Confluence（Atlassian：白底、深藍灰文字、Atlassian 藍、資訊面板） ===== */
+:root[data-theme="confluence"] { color-scheme:light; --bg:#ffffff; --card:#f4f5f7; --fg:#172b4d; --muted:#5e6c84; --accent:#0c66e4; --on-accent:#ffffff; --border:#dfe1e6; --detail-bg:#e9f0fb; --code-bg:#dde6f5; --roman:#216e4e; --hover:#f1f2f4; --weak:#c9372c; }
+[data-theme="confluence"] body { font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, "Droid Sans", "Helvetica Neue", "Noto Sans Thai", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+[data-theme="confluence"] header { background:#fff; border-bottom:1px solid var(--border); box-shadow:0 1px 3px rgba(9,30,66,.08); }
+[data-theme="confluence"] h1 a { color:var(--accent); font-weight:700; }
+[data-theme="confluence"] #nav button { border-radius:3px; font-weight:500; }
+[data-theme="confluence"] #nav button:hover { background:#f1f2f4; }
+[data-theme="confluence"] #nav button.on { background:#e9f2ff; color:var(--accent); box-shadow:inset 0 -3px 0 var(--accent); border-radius:3px 3px 0 0; }
+[data-theme="confluence"] :is(button, input, textarea, select, .taginput, .tagmenu, #themeMenu, #selPop) { border-radius:3px; }
+[data-theme="confluence"] :is(input, textarea, select, .taginput) { background:#fafbfc; border:2px solid var(--border); }
+[data-theme="confluence"] :is(input, textarea, select, .taginput):hover { background:#ebecf0; }
+[data-theme="confluence"] :is(input, textarea, select):focus { outline:none; background:#fff; border-color:#4c9aff; box-shadow:0 0 0 1px #4c9aff; }
+[data-theme="confluence"] button { background:rgba(9,30,66,.04); border-color:transparent; font-weight:500; }
+[data-theme="confluence"] button:hover { background:rgba(9,30,66,.08); border-color:transparent; }
+[data-theme="confluence"] :is(.tabs button.on, .tagbtn.on, #maskBtn.on, .quizact button.on[data-q="ok"]) { background:var(--accent); color:#fff; }
+[data-theme="confluence"] :is(button.icon, button.say, button.play, .chip button, #nav button) { background:transparent; }
+[data-theme="confluence"] .tile { background:#fff; border:1px solid var(--border); border-radius:3px; box-shadow:0 1px 1px rgba(9,30,66,.2), 0 0 1px rgba(9,30,66,.31); }
+[data-theme="confluence"] .tile:hover { background:#f4f5f7; }
+[data-theme="confluence"] .card:hover { background:var(--hover); }
+[data-theme="confluence"] .detail { border-radius:3px; border-left:4px solid var(--accent); }
+[data-theme="confluence"] .detail h1, [data-theme="confluence"] .detail h2, [data-theme="confluence"] .detail h3 { color:#172b4d; }
+[data-theme="confluence"] dialog { border-radius:3px; border:none; background:#fff; box-shadow:0 8px 16px -4px rgba(9,30,66,.25), 0 0 1px rgba(9,30,66,.31); }
+[data-theme="confluence"] dialog::backdrop { background:rgba(9,30,66,.54); }
+[data-theme="confluence"] .chip, [data-theme="confluence"] .tagbtn { border-radius:3px; }
+
+/* ===== 主題：Notion（暖白底、近黑文字、淡灰區塊、紅色行內程式碼） ===== */
+:root[data-theme="notion"] { color-scheme:light; --bg:#ffffff; --card:#f7f6f3; --fg:#37352f; --muted:#787774; --accent:#2383e2; --on-accent:#ffffff; --border:#e9e9e7; --detail-bg:#f7f6f3; --code-bg:#efedea; --roman:#0f7b6c; --hover:#efefed; --weak:#e03e3e; }
+[data-theme="notion"] body { font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans Thai", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+[data-theme="notion"] header { border-bottom:1px solid var(--border); }
+[data-theme="notion"] h1 { font-weight:700; }
+[data-theme="notion"] #nav button { border-radius:4px; color:#787774; }
+[data-theme="notion"] #nav button:hover { background:var(--hover); color:var(--fg); }
+[data-theme="notion"] #nav button.on { background:var(--hover); color:var(--fg); font-weight:600; }
+[data-theme="notion"] :is(button, input, textarea, select, .taginput, .tagmenu, #themeMenu, #selPop, .tile, .detail, dialog) { border-radius:4px; }
+[data-theme="notion"] button { background:#fff; border:1px solid rgba(55,53,47,.16); box-shadow:0 1px 1px rgba(15,15,15,.05); }
+[data-theme="notion"] button:hover { background:var(--hover); border-color:rgba(55,53,47,.2); }
+[data-theme="notion"] :is(button.icon, button.say, button.play, .chip button, #nav button) { background:transparent; border:none; box-shadow:none; }
+[data-theme="notion"] :is(.tabs button.on, #maskBtn.on, .quizact button.on[data-q="ok"]) { background:#e7f3f8; border-color:#a9d3ea; color:#1a6faf; font-weight:600; }
+[data-theme="notion"] .tagbtn { border-radius:3px; background:#e3e2e0; border-color:transparent; color:#32302c; }
+[data-theme="notion"] .tagbtn.on { background:#d3e5ef; color:#183347; }
+[data-theme="notion"] .tagbtn.on span { color:#183347; }
+[data-theme="notion"] .chip { border-radius:3px; background:#e3e2e0; color:#32302c; }
+[data-theme="notion"] :is(input, textarea, select, .taginput) { background:rgba(242,241,238,.6); border:1px solid rgba(55,53,47,.16); box-shadow:inset 0 1px 2px rgba(15,15,15,.06); }
+[data-theme="notion"] :is(input, textarea, select):focus { outline:none; border-color:#2383e2; box-shadow:0 0 0 2px rgba(35,131,226,.28); }
+[data-theme="notion"] .tile { background:#fff; border:1px solid var(--border); box-shadow:0 1px 2px rgba(15,15,15,.08); }
+[data-theme="notion"] .tile:hover { background:var(--card); }
+[data-theme="notion"] .tile b { color:var(--fg); }
+[data-theme="notion"] .welcome { font-weight:700; }
+[data-theme="notion"] .detail { background:var(--card); border:none; }
+[data-theme="notion"] .detail code { color:#eb5757; background:rgba(135,131,120,.15); }
+[data-theme="notion"] .detail pre code { color:inherit; background:none; }
+[data-theme="notion"] .detail blockquote { border-left:3px solid currentColor; color:var(--fg); }
+[data-theme="notion"] dialog { background:#fff; border:none; box-shadow:0 0 0 1px rgba(15,15,15,.05), 0 5px 20px rgba(15,15,15,.2); }
+[data-theme="notion"] dialog::backdrop { background:rgba(15,15,15,.6); }
+
+/* ===== 主題：Obsidian（炭灰底、紫色強調、標籤膠囊、Markdown 筆記風） ===== */
+:root[data-theme="obsidian"] { color-scheme:dark; --bg:#1e1e1e; --card:#262626; --fg:#dadada; --muted:#9a9a9a; --accent:#7f6df2; --on-accent:#ffffff; --border:#363636; --detail-bg:#232323; --code-bg:#2e2e2e; --roman:#86b6f0; --hover:#2a2a2a; --weak:#fb464c; }
+[data-theme="obsidian"] header { background:#262626; border-bottom:1px solid #363636; }
+[data-theme="obsidian"] h1 a { color:#a99cff; font-weight:700; }
+[data-theme="obsidian"] #nav button { border-radius:6px; }
+[data-theme="obsidian"] #nav button:hover { background:#303030; color:var(--fg); }
+[data-theme="obsidian"] #nav button.on { background:rgba(127,109,242,.2); color:#b9afff; }
+[data-theme="obsidian"] :is(button, input, textarea, select, .taginput) { border-radius:6px; }
+[data-theme="obsidian"] button { background:#2f2f2f; border-color:#3d3d3d; }
+[data-theme="obsidian"] button:hover { background:#383838; border-color:#4a4a4a; }
+[data-theme="obsidian"] :is(button.icon, button.say, button.play, .chip button, #nav button) { background:transparent; border:none; }
+[data-theme="obsidian"] :is(button.icon, button.say, button.play):hover { background:transparent; }
+[data-theme="obsidian"] :is(.tabs button.on, .tagbtn.on, #maskBtn.on, .quizact button.on[data-q="ok"]) { background:var(--accent); border-color:var(--accent); color:#fff; }
+[data-theme="obsidian"] .tagbtn, [data-theme="obsidian"] .chip { border-radius:999px; background:rgba(127,109,242,.16); border-color:transparent; color:#b9afff; }
+[data-theme="obsidian"] .tagbtn span { color:#9a8fe6; }
+[data-theme="obsidian"] :is(input, textarea, select, .taginput) { background:#1b1b1b; border-color:#3d3d3d; }
+[data-theme="obsidian"] :is(input, textarea, select):focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(127,109,242,.3); }
+[data-theme="obsidian"] .tile { background:#262626; border:1px solid #363636; border-radius:10px; }
+[data-theme="obsidian"] .tile:hover { border-color:var(--accent); }
+[data-theme="obsidian"] .tile b { color:#b9afff; }
+[data-theme="obsidian"] .detail { border:1px solid #333; border-radius:8px; }
+[data-theme="obsidian"] .detail h1, [data-theme="obsidian"] .detail h2, [data-theme="obsidian"] .detail h3 { color:#e8e2ff; }
+[data-theme="obsidian"] .detail blockquote { border-left:3px solid var(--accent); }
+[data-theme="obsidian"] .detail code { font-family:"Cascadia Code", "Fira Code", Consolas, "Courier New", monospace; color:#e5a8ff; }
+[data-theme="obsidian"] .detail pre code { color:inherit; }
+[data-theme="obsidian"] .detail a { color:#a99cff; }
+[data-theme="obsidian"] dialog { background:#262626; border:1px solid #3d3d3d; border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.6); }
+[data-theme="obsidian"] dialog::backdrop { background:rgba(0,0,0,.65); }
+[data-theme="obsidian"] .cue.on { box-shadow:inset 3px 0 0 var(--accent); }

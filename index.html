@@ -1,12 +1,16 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <script>
-  // 先於畫面渲染套用已存的主題，避免閃爍；沒存過就跟隨系統
-  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  // 先於畫面渲染套用已存的主題，避免閃爍；沒存過（或無法讀取）就預設白天模式
+  const THEME_IDS = ["light", "hollow", "cyberpunk", "expedition", "confluence", "notion", "obsidian"];
+  let theme = "light";
+  try { theme = localStorage.getItem("theme") || "light"; } catch (e) {}
+  if (theme === "dark") theme = "hollow"; // 舊的「深色」主題已改為 Hollow Knight
+  document.documentElement.dataset.theme = THEME_IDS.includes(theme) ? theme : "light";
 </script>
 <title>泰語學習</title>
 <link rel="stylesheet" href="style.css">
@@ -21,7 +25,10 @@
     <button data-page="videos">影片</button>
   </nav>
   <div class="hdr-right">
-    <button id="themeBtn" title="切換淺色／深色"></button>
+    <div class="themepick">
+      <button id="themeBtn" title="切換主題" aria-haspopup="true">主題</button>
+      <div id="themeMenu" hidden></div>
+    </div>
     <div id="authBox"></div>
   </div>
 </header>
@@ -165,3 +172,7 @@
 <script type="module" src="app.js"></script>
 </body>
 </html>
+
+
+
+

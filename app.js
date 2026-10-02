@@ -95,17 +95,44 @@ const ICON = {
 };
 
 /* ---------- 主題 ---------- */
-const sysDark = matchMedia("(prefers-color-scheme: dark)");
-const currentTheme = () => document.documentElement.dataset.theme || (sysDark.matches ? "dark" : "light");
-const syncThemeBtn = () => { $("themeBtn").textContent = currentTheme() === "dark" ? "☀️" : "🌙"; };
-$("themeBtn").onclick = () => {
-  const next = currentTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try { localStorage.setItem("theme", next); } catch (e) {}
-  syncThemeBtn();
+// 預設白天模式（不跟隨系統）；選擇後會記住。index.html 的內嵌腳本會在畫面渲染前先套用已存的主題。
+// 新增主題：這裡加一筆，並在 style.css 加上 :root[data-theme="id"] 變數區塊，另外把 id 加進 index.html 的 THEME_IDS。
+const THEMES = [
+  { id: "light", name: "默認", sw: ["#e5e5e5", "#3566c9"] },
+  { id: "hollow", name: "Hollow Knight", sw: ["#0b0e16", "#bcd6f0", "#7fc8c0"] },
+  { id: "cyberpunk", name: "Cyberpunk 2077", sw: ["#0a0a0f", "#fcee0a", "#00f0ff"] },
+  { id: "expedition", name: "Expedition 33", sw: ["#0e1424", "#d8b25a", "#9cc4e4"] },
+  { id: "confluence", name: "Confluence", sw: ["#ffffff", "#0c66e4", "#172b4d"] },
+  { id: "notion", name: "Notion", sw: ["#ffffff", "#37352f", "#2383e2"] },
+  { id: "obsidian", name: "Obsidian", sw: ["#1e1e1e", "#7f6df2", "#86b6f0"] },
+];
+const currentTheme = () => document.documentElement.dataset.theme || "light";
+function renderThemeMenu() {
+  $("themeMenu").innerHTML = THEMES.map((t) => `
+    <button data-theme="${t.id}"${t.id === currentTheme() ? ' class="on"' : ""}>
+      <span class="sw">${t.sw.map((c) => `<i style="background:${c}"></i>`).join("")}</span>
+      <span class="nm">${t.name}</span><span class="ck">✓</span>
+    </button>`).join("");
+}
+function setTheme(id) {
+  if (!THEMES.some((t) => t.id === id)) id = "light";
+  document.documentElement.dataset.theme = id;
+  try { localStorage.setItem("theme", id); } catch (e) {}
+  renderThemeMenu();
+}
+$("themeBtn").onclick = (e) => {
+  e.stopPropagation();
+  renderThemeMenu();
+  $("themeMenu").hidden = !$("themeMenu").hidden;
 };
-sysDark.addEventListener("change", syncThemeBtn);
-syncThemeBtn();
+$("themeMenu").onclick = (e) => {
+  const b = e.target.closest("button[data-theme]");
+  if (!b) return;
+  setTheme(b.dataset.theme);
+  $("themeMenu").hidden = true;
+};
+document.addEventListener("click", (e) => { if (!e.target.closest(".themepick")) $("themeMenu").hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("themeMenu").hidden = true; });
 
 /* ---------- 遮罩（字卡頁專用）：隱藏泰文與拼音，點一下卡片顯示 ---------- */
 let maskOn = false;
@@ -996,6 +1023,15 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
+
+
+
+
+
+
 
 
 
