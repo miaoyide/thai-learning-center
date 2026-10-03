@@ -432,3 +432,5 @@ button.say:hover { opacity:.7; }
   #search { flex:1 1 100%; }
 }
 
+
+button.say:not(:first-child) { margin-left:.3em; }

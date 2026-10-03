@@ -59,27 +59,36 @@ function addSayButtons(html) {
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   tpl.content.querySelectorAll(SAY_BLOCKS).forEach((el) => {
-    let own = "";
+    // 這一層自己的文字節點（不含巢狀區塊），依序串成一段字串來找泰文
+    const nodes = [];
     const walk = (n) => {
       for (const c of n.childNodes) {
-        if (c.nodeType === 3) own += c.nodeValue;
+        if (c.nodeType === 3) nodes.push(c);
         else if (c.nodeType === 1 && !SKIP_IN_OWN_TEXT.test(c.tagName)) walk(c);
       }
     };
     walk(el);
-    const thai = thaiOf(own);
-    if (!thai) return;
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "say";
-    b.title = "發音";
-    b.dataset.say = thai;
-    b.innerHTML = ICON.play;
-    el.insertBefore(b, el.firstChild);
+    const starts = [];
+    let full = "";
+    for (const n of nodes) { starts.push(full.length); full += n.nodeValue; }
+    // 每一段泰文各放一個按鈕，只念那一段。從後往前插入，前面的位置才不會被改動
+    const runs = [...full.matchAll(/[\u0E00-\u0E7F]+(?:[ \t]+[\u0E00-\u0E7F]+)*/g)];
+    for (const m of runs.reverse()) {
+      let i = starts.length - 1;
+      while (starts[i] > m.index) i--; // 這段泰文開頭落在哪個文字節點（可能跨粗體／斜體等標籤）
+      const node = nodes[i];
+      const off = m.index - starts[i];
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "say";
+      b.title = "發音";
+      b.dataset.say = m[0];
+      b.innerHTML = ICON.play;
+      node.parentNode.insertBefore(b, off ? node.splitText(off) : node);
+    }
   });
   return tpl.innerHTML;
-}
-const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(s || "", { breaks: true })));
+}const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(s || "", { breaks: true })));
 // 泰文不用空白分詞：移除所有空白（含全形空白、不換行空白、零寬字元）
 const stripSpaces = (s) => s.replace(/[\s​-‍﻿]+/g, "");
 const fmtDate = (t) => (t?.toDate ? t.toDate().toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) : "");
@@ -1035,6 +1044,9 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
 
 
 
