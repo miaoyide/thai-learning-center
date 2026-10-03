@@ -434,3 +434,6 @@ button.say:hover { opacity:.7; }
 
 
 button.say:not(:first-child) { margin-left:.3em; }
+
+#loginMsg:empty { display:none; }
+.err { color:var(--weak); }

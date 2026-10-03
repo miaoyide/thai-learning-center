@@ -234,7 +234,32 @@ function exitGuest() {
 $("guestBtn").onclick = enterGuest;
 $("loginBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
 
-onAuthStateChanged(auth, (user) => {
+// 登入有效期：自「上次登入」起 1 天（Firestore 規則用 auth_time 做同樣的限制，這裡負責讓畫面一起登出）
+const SESSION_MS = 24 * 60 * 60 * 1000;
+let sessionTimer = null;
+const sessionLeftMs = (authTime) => new Date(authTime).getTime() + SESSION_MS - Date.now();
+
+// 回傳 true 表示仍有效；過期就登出並提示。有效時會排程在到期那一刻自動登出。
+async function enforceSession(user) {
+  clearTimeout(sessionTimer);
+  if (!user) return true;
+  const left = sessionLeftMs((await user.getIdTokenResult()).authTime);
+  if (left <= 0) {
+    await signOut(auth);
+    $("loginMsg").textContent = "登入已超過 1 天，已自動登出，請重新登入。";
+    return false;
+  }
+  sessionTimer = setTimeout(() => enforceSession(auth.currentUser), left + 1000);
+  return true;
+}
+// 睡眠或背景分頁會讓計時器延遲，回到分頁時再檢查一次
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && auth.currentUser) enforceSession(auth.currentUser);
+});
+
+onAuthStateChanged(auth, async (user) => {
+  if (user && !(await enforceSession(user))) return; // 過期：已登出，會再觸發一次 user=null 的回呼
+  if (user) $("loginMsg").textContent = "";
   signedIn = !!user;
   if (signedIn) {
     guest = false;
@@ -1044,6 +1069,10 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
+
 
 
 

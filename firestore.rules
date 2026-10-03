@@ -1,21 +1,26 @@
-rules_version = '2';
+﻿rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 讀取：任何人都可以（訪客模式）；寫入：只有擁有者帳號
+    // 擁有者：指定的 Google 帳號，且「上次登入」距今不到 1 天（auth_time 是登入當下的時間，
+    // 不會因為權杖自動更新而改變）。超過就必須重新登入才能寫入。
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email == "miaoyide@gmail.com"
+        && request.time.toMillis() - request.auth.token.auth_time * 1000 < 24 * 60 * 60 * 1000;
+    }
+
+    // 讀取：任何人都可以（訪客模式）；寫入：只有擁有者
     match /cards/{id} {
       allow read: if true;
-      allow write: if request.auth != null
-        && request.auth.token.email == "miaoyide@gmail.com";
+      allow write: if isOwner();
     }
     match /videos/{id} {
       allow read: if true;
-      allow write: if request.auth != null
-        && request.auth.token.email == "miaoyide@gmail.com";
+      allow write: if isOwner();
     }
     match /articles/{id} {
       allow read: if true;
-      allow write: if request.auth != null
-        && request.auth.token.email == "miaoyide@gmail.com";
+      allow write: if isOwner();
     }
   }
 }
