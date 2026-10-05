@@ -111,7 +111,69 @@ function convertLatexSymbols(src) {
     )))
     .join("");
 }
-const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(convertLatexSymbols(s || ""), { breaks: true })));
+// 修復被換行拆壞的表格列：AI 回答複製出來時，儲存格內的換行（原本是 <br>）會變成真的換行，
+// 例如 `| a | b | c |` 後面接著好幾行文字、最後一行才有單獨的 `|`，表格就會斷掉。
+// 只在「往後找得到剛好補齊欄位數的結尾 |」時才合併，沒有把握就不動，避免弄壞正常內容。
+function countPipes(s) { // 欄位分隔的 |（不含被跳脫的 \| 與行內程式碼裡的）
+  let n = 0, code = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "`") code = !code;
+    else if (c === "\\") i++;
+    else if (c === "|" && !code) n++;
+  }
+  return n;
+}
+function repairTables(src) {
+  const lines = src.split("\n");
+  const out = [];
+  const isSep = (l) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(l);
+  let inFence = false;
+  let cols = 0; // 目前所在表格的欄數；0 表示不在表格內
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const t = line.trim();
+    if (/^(```|~~~)/.test(t)) { inFence = !inFence; cols = 0; out.push(line); continue; }
+    if (inFence) { out.push(line); continue; }
+    if (!cols) {
+      if (t.startsWith("|") && i + 1 < lines.length && isSep(lines[i + 1]) && lines[i + 1].includes("-")) {
+        cols = lines[i + 1].split("|").filter((c) => c.trim()).length;
+        out.push(line, lines[i + 1]);
+        i++;
+      } else out.push(line);
+      continue;
+    }
+    if (!t.startsWith("|")) { cols = 0; out.push(line); continue; } // 表格結束
+    const need = cols + 1; // 完整的列有「欄數 + 1」個 |
+    let have = countPipes(t);
+    if (have < need) {
+      const extra = [];
+      let j = i + 1;
+      let merged = null;
+      for (; j < lines.length && j <= i + 40; j++) {
+        const nl = lines[j].trim();
+        const np = countPipes(nl);
+        if (np === 0) { if (nl) extra.push(nl); continue; }
+        if (have + np === need && np === 1 && nl.endsWith("|")) { // 補上結尾的 |
+          const tail = nl.slice(0, -1).trim();
+          let k = j + 1;
+          while (k < lines.length && !lines[k].trim()) k++;
+          // 結尾必須是單獨的 |，或後面緊接著下一列表格；否則只是剛好以 | 結尾的一般文字，不動
+          if (!tail || (k < lines.length && lines[k].trim().startsWith("|"))) {
+            if (tail) extra.push(tail);
+            merged = `${t} ${extra.join("<br>")} |`;
+          }
+        }
+        break;
+      }
+      if (merged) { out.push(merged); i = j; continue; }
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(repairTables(convertLatexSymbols(s || "")), { breaks: true })));
 // 泰文不用空白分詞：移除所有空白（含全形空白、不換行空白、零寬字元）
 const stripSpaces = (s) => s.replace(/[\s​-‍﻿]+/g, "");
 const fmtDate = (t) => (t?.toDate ? t.toDate().toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) : "");
@@ -834,6 +896,15 @@ $("fThai").addEventListener("input", (e) => {
 // 從 AI 網頁或文章複製時剪貼簿帶有 HTML；貼上時轉成 Markdown，標題/粗體/表格/清單才不會掉
 const turndown = new TurndownService({ headingStyle: "atx", bulletListMarker: "-", codeBlockStyle: "fenced" });
 turndown.use(gfm);
+// 表格儲存格裡的換行（<br> 或多個段落）改輸出成 <br>，否則 Markdown 表格會被斷行弄壞
+turndown.addRule("tableCellNoBreak", {
+  filter: ["th", "td"],
+  replacement(content, node) {
+    const flat = content.trim().replace(/\s*\n+\s*/g, "<br>").replace(/(?<!\\)\|/g, "\\|");
+    const index = Array.prototype.indexOf.call(node.parentNode.childNodes, node);
+    return (index === 0 ? "| " : " ") + flat + " |";
+  },
+});
 function enableRichPaste(el) {
   el.addEventListener("paste", (e) => {
     const html = e.clipboardData.getData("text/html");
@@ -1131,6 +1202,9 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
 
 
 
