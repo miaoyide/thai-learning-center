@@ -93,7 +93,25 @@ function addSayButtons(html) {
     }
   });
   return tpl.innerHTML;
-}const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(s || "", { breaks: true })));
+}// AI 回答常夾帶 LaTeX 符號（例如 $\rightarrow$），Markdown 不認得，先轉成對應的符號再渲染。
+// 只處理「整段 $...$ 或 \(...\) 裡只有一個符號指令」的情況，程式碼區塊與行內程式碼不動。\n// 從網頁貼上時 Markdown 轉換會把反斜線加倍（$\\rightarrow$），所以反斜線允許一個以上。
+const LATEX_SYMBOLS = {
+  rightarrow: "→", to: "→", longrightarrow: "⟶", Rightarrow: "⇒", Longrightarrow: "⟹",
+  leftarrow: "←", gets: "←", Leftarrow: "⇐", leftrightarrow: "↔", Leftrightarrow: "⇔",
+  uparrow: "↑", downarrow: "↓", mapsto: "↦",
+  times: "×", div: "÷", pm: "±", mp: "∓", cdot: "·", approx: "≈", neq: "≠", ne: "≠", leq: "≤", le: "≤", geq: "≥", ge: "≥",
+  checkmark: "✓", ldots: "…", dots: "…", infty: "∞", degree: "°",
+};
+function convertLatexSymbols(src) {
+  return src
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/) // 奇數索引是程式碼片段，保持原樣
+    .map((part, i) => (i % 2 ? part : part.replace(
+      /\$\s*\\+([A-Za-z]+)\s*\$|\\+\(\s*\\+([A-Za-z]+)\s*\\+\)/g,
+      (m, a, b) => LATEX_SYMBOLS[a || b] ?? m,
+    )))
+    .join("");
+}
+const md = (s) => addSayButtons(DOMPurify.sanitize(marked.parse(convertLatexSymbols(s || ""), { breaks: true })));
 // 泰文不用空白分詞：移除所有空白（含全形空白、不換行空白、零寬字元）
 const stripSpaces = (s) => s.replace(/[\s​-‍﻿]+/g, "");
 const fmtDate = (t) => (t?.toDate ? t.toDate().toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) : "");
@@ -1113,6 +1131,10 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
+
 
 
 
