@@ -437,3 +437,14 @@ button.say:not(:first-child) { margin-left:.3em; }
 
 #loginMsg:empty { display:none; }
 .err { color:var(--weak); }
+
+/* 封存 */
+.arch { display:inline-flex; margin-right:6px; color:var(--muted); vertical-align:-.12em; }
+.card:not(.archived) .arch { display:none; }
+.card.archived .english { opacity:.9; }
+.tabs button[data-type="archived"].on { background:var(--muted); border-color:var(--muted); color:var(--bg); }
+.quizscope { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:6px 0 10px; }
+.quizscope button { padding:4px 12px; white-space:nowrap; }
+.quizscope button.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); font-weight:600; }
+.quizact button.on[data-q="archive"] { background:var(--muted); border-color:var(--muted); color:var(--bg); }
+.guest #archiveBtn, .guest #archivedTab, .guest [data-go="archived"], .guest .arch { display:none !important; }

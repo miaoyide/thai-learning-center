@@ -27,8 +27,13 @@ let unsubs = [];
 const PAGES = ["home", "cards", "articles", "videos", "quiz"]; // quiz 不在導覽列，從首頁進入
 let quizIds = []; // 隨堂測驗目前抽到的字卡 id
 const quizResult = new Map(); // 本次測驗各題的標記：id → "ok" | "weak"
-let quizWeakOnly = false; // 只考「需加強」的字卡
-try { quizWeakOnly = localStorage.getItem("quizWeak") === "1"; } catch (e) {}
+let quizScope = "normal"; // 測驗抽題範圍：normal 一般（未封存）｜weak 需加強｜archived 封存｜all 全部
+try {
+  quizScope = localStorage.getItem("quizScope") || (localStorage.getItem("quizWeak") === "1" ? "weak" : "normal");
+  if (!["normal", "weak", "archived", "all"].includes(quizScope)) quizScope = "normal";
+} catch (e) {}
+const inQuizScope = (c) => (quizScope === "weak" ? c.weak && !c.archived : quizScope === "archived" ? c.archived : quizScope === "all" ? true : !c.archived);
+const QUIZ_SCOPES = [["normal", "一般"], ["weak", "需加強"], ["archived", "封存"], ["all", "全部"]];
 let page = "home"; // 目前頁面
 let viewing = null; // 列表頁內正在看的內容："video" | "article" | null
 let currentArticleId = null;
@@ -100,6 +105,7 @@ const ICON = {
   edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   flag: svg('<path d="M5 22V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>'),
+  archive: svg('<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/>'),
   del: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>'),
 };
 
@@ -213,7 +219,7 @@ function applyAuthUI() {
   if ($("outBtn")) $("outBtn").onclick = () => (signedIn ? signOut(auth) : exitGuest());
   if ($("inBtn")) $("inBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
   if (guest && !signedIn) {
-    if (typeFilter === "weak") setTypeFilter("all"); // 「需加強」是擁有者的個人標記，訪客看不到
+    if (["weak", "archived"].includes(typeFilter)) setTypeFilter("all"); // 「需加強」「封存」是擁有者的個人標記，訪客看不到
     if (page === "quiz") navigate("home");
   }
 }
@@ -355,6 +361,7 @@ function go(p) {
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
   $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
+  $("archiveBtn").hidden = p !== "cards"; // 封存只用於字卡
   $("search").placeholder = SEARCH_HINT[p] || "";
   applyView();
   render();
@@ -484,6 +491,8 @@ function updateBar() {
   $("editBtn").disabled = selected.size !== 1;
   $("delBtn").disabled = selected.size === 0;
   $("delBtn").textContent = selected.size > 1 ? `刪除 (${selected.size})` : "刪除";
+  $("archiveBtn").disabled = selected.size === 0;
+  $("archiveBtn").textContent = (typeFilter === "archived" ? "取消封存" : "封存") + (selected.size > 1 ? ` (${selected.size})` : "");
   const n = visible.filter((c) => selected.has(c.id)).length;
   $("selAll").checked = visible.length > 0 && n === visible.length;
   $("selAll").indeterminate = n > 0 && n < visible.length;
@@ -494,8 +503,9 @@ function renderHome() {
     <h2 class="welcome">歡迎回來</h2>
     <p class="muted">今天想學點什麼？</p>
     <div class="tiles">
-      <button class="tile" data-go="cards"><b>${cards.length}</b><span>字卡</span></button>
-      <button class="tile" data-go="weak"><b>${cards.filter((c) => c.weak).length}</b><span>需加強</span></button>
+      <button class="tile" data-go="cards"><b>${cards.filter((c) => !c.archived).length}</b><span>字卡</span></button>
+      <button class="tile" data-go="weak"><b>${cards.filter((c) => c.weak && !c.archived).length}</b><span>需加強</span></button>
+      <button class="tile" data-go="archived"><b>${cards.filter((c) => c.archived).length}</b><span>封存</span></button>
       <button class="tile" data-go="articles"><b>${articles.length}</b><span>文章</span></button>
       <button class="tile" data-go="videos"><b>${videos.length}</b><span>影片</span></button>
     </div>
@@ -506,9 +516,9 @@ function renderHome() {
 }
 $("home").onclick = (e) => {
   const t = e.target.closest("[data-go]");
-  if (t?.dataset.go === "weak") { // 直接進字卡頁的「需加強」分頁
+  if (t && ["weak", "archived"].includes(t.dataset.go)) { // 直接進字卡頁的「需加強」「封存」分頁
     if (page !== "cards") navigate("cards");
-    return setTypeFilter("weak");
+    return setTypeFilter(t.dataset.go);
   }
   if (t) return navigate(t.dataset.go);
   const b = e.target.closest("button[data-act]");
@@ -546,7 +556,7 @@ function renderArticles(q) {
 
 /* ---------- 隨堂測驗：從字卡隨機抽 5–10 張，只顯示英文；看完答案後可標記「記得了／需加強」並寫備註 ---------- */
 function newQuiz() {
-  const pool = cards.filter((c) => c.english && (!quizWeakOnly || c.weak)); // 沒有英文就沒辦法出題
+  const pool = cards.filter((c) => c.english && inQuizScope(c)); // 沒有英文就沒辦法出題
   for (let i = pool.length - 1; i > 0; i--) { // Fisher–Yates 洗牌
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -564,11 +574,13 @@ function updateQuizMarks() {
     const c = cards.find((x) => x.id === el.dataset.id);
     const r = quizResult.get(el.dataset.id);
     el.classList.toggle("weak", !!c?.weak);
+    el.classList.toggle("archived", !!c?.archived);
+    const ab = el.querySelector('[data-q="archive"]');
+    if (ab) { ab.textContent = c?.archived ? "取消封存" : "封存"; ab.classList.toggle("on", !!c?.archived); }
     el.querySelector('[data-q="ok"]')?.classList.toggle("on", r === "ok");
     el.querySelector('[data-q="weak"]')?.classList.toggle("on", r === "weak");
   });
-  const wb = $("quiz").querySelector('[data-act="weakonly"]');
-  if (wb) wb.classList.toggle("on", quizWeakOnly);
+  $("quiz").querySelectorAll("[data-scope]").forEach((b) => b.classList.toggle("on", b.dataset.scope === quizScope));
 }
 
 function renderQuiz(force = false) {
@@ -577,19 +589,22 @@ function renderQuiz(force = false) {
   if (!force && $("quiz").dataset.ids === key && $("quiz").children.length) return updateQuizMarks();
   $("quiz").dataset.ids = key;
   const list = quizIds.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
-  const empty = quizWeakOnly ? "還沒有標記為「需加強」的字卡。" : "還沒有可出題的字卡（需要有英文），先去新增吧。";
+  const empty = { weak: "還沒有標記為「需加強」的字卡。", archived: "還沒有封存的字卡。" }[quizScope] || "還沒有可出題的字卡（需要有英文），先去新增吧。";
   $("quiz").innerHTML = `
     <div class="readerbar">
       <button data-act="home">← 首頁</button>
       <strong class="vtitle">隨堂測驗（${list.length} 題）</strong>
-      <button data-act="weakonly" title="只從標記為「需加強」的字卡抽題">只考需加強</button>
       <button data-act="again">再抽一組</button>
     </div>
-    <p class="muted quizhint">看英文回想泰文，點一下卡片顯示答案，再標記「記得了」或「需加強」。</p>
+    <div class="quizscope">
+      <span class="muted">抽題範圍</span>
+      ${QUIZ_SCOPES.map(([k, n]) => `<button data-scope="${k}">${n}</button>`).join("")}
+    </div>
+    <p class="muted quizhint">看英文回想泰文，點一下卡片顯示答案，再標記「記得了」「需加強」，或把已經確定學會的「封存」。</p>
     ${list.map((c) => `
-      <div class="card quiz${c.weak ? " weak" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
+      <div class="card quiz${c.weak ? " weak" : ""}${c.archived ? " archived" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
         <div class="line quizline">
-          <div class="english"><span class="flag" title="需加強">${ICON.flag}</span>${esc(c.english)}</div>
+          <div class="english"><span class="flag" title="需加強">${ICON.flag}</span><span class="arch" title="已封存">${ICON.archive}</span>${esc(c.english)}</div>
           <div class="words">
             <div class="thai">${esc(c.thai)}</div>
             <div class="roman">${esc(c.roman)}</div>
@@ -599,6 +614,7 @@ function renderQuiz(force = false) {
         <div class="quizact">
           <button data-q="ok">記得了</button>
           <button data-q="weak">需加強</button>
+          <button data-q="archive">封存</button>
           <input class="qnote" placeholder="備註（例如容易搞混的地方）" value="${esc(c.note || "")}">
         </div>
         ${c.detail ? `<div class="detail"${opened.has(c.id) ? "" : " hidden"}>${md(c.detail)}</div>` : ""}
@@ -609,22 +625,27 @@ function renderQuiz(force = false) {
 async function markQuiz(id, kind) {
   if (readOnly()) return;
   const c = cards.find((x) => x.id === id);
-  if (!c || quizResult.get(id) === kind) return;
-  quizResult.set(id, kind);
-  // 需加強：記一次「答錯」；記得了：取消需加強標記（累計次數保留）
-  const data = kind === "weak" ? { weak: true, misses: (c.misses || 0) + 1 } : { weak: false };
+  if (!c || (kind !== "archive" && quizResult.get(id) === kind)) return;
+  let data;
+  if (kind === "archive") { // 封存／取消封存（封存時一併取消需加強）
+    data = c.archived ? { archived: false } : { archived: true, weak: false };
+  } else {
+    quizResult.set(id, kind);
+    // 需加強：記一次「答錯」，如果它原本已封存就取消封存（其實還沒學會）；記得了：取消需加強標記（累計次數保留）
+    data = kind === "weak" ? { weak: true, misses: (c.misses || 0) + 1, archived: false } : { weak: false };
+  }
   Object.assign(c, data); // 先更新本地，畫面立即反應
   updateQuizMarks();
   try { await updateDoc(doc(db, "cards", id), data); } catch (err) { alert("儲存失敗：" + err.message); }
 }
 
 $("quiz").onclick = (e) => {
-  const b = e.target.closest("button[data-act], button[data-q]");
+  const b = e.target.closest("button[data-act], button[data-q], button[data-scope]");
   if (b?.dataset.act === "home") return navigate("home");
   if (b?.dataset.act === "again") { newQuiz(); return renderQuiz(true); }
-  if (b?.dataset.act === "weakonly") {
-    quizWeakOnly = !quizWeakOnly;
-    try { localStorage.setItem("quizWeak", quizWeakOnly ? "1" : "0"); } catch (err) {}
+  if (b?.dataset.scope) {
+    quizScope = b.dataset.scope;
+    try { localStorage.setItem("quizScope", quizScope); } catch (err) {}
     newQuiz();
     return renderQuiz(true);
   }
@@ -649,16 +670,22 @@ function render() {
   if (viewing === "article") renderReader(); // 編輯後立即更新閱讀中的內容
   const pool = poolOf();
   for (const id of [...selected]) if (!pool.some((c) => c.id === id)) selected.delete(id);
-  renderTagBar(pool);
+  // 字卡頁的標籤列只統計目前看的範圍（封存分頁 vs 一般）
+  renderTagBar(page === "cards" ? cards.filter((c) => !!c.archived === (typeFilter === "archived")) : pool);
   const q = $("search").value.trim().toLowerCase();
   if (page === "videos") return renderVideos(q);
   if (page === "articles") return renderArticles(q);
-  $("weakTab").textContent = `需加強 ${cards.filter((c) => c.weak).length}`;
+  $("weakTab").textContent = `需加強 ${cards.filter((c) => c.weak && !c.archived).length}`;
+  $("archivedTab").textContent = `封存 ${cards.filter((c) => c.archived).length}`;
+  // 封存的字卡只出現在「封存」分頁，不顯示在其他列表
+  const inTab = (c) => (typeFilter === "archived"
+    ? !!c.archived
+    : !c.archived && (typeFilter === "all" || (typeFilter === "weak" ? c.weak : typeOf(c) === typeFilter)));
   const list = visible = cards.filter((c) =>
-    (typeFilter === "all" || (typeFilter === "weak" ? c.weak : typeOf(c) === typeFilter)) && matchTags(c) &&
+    inTab(c) && matchTags(c) &&
     (!q || [c.thai, c.roman, c.english, ...tagsOf(c)].join(" ").toLowerCase().includes(q)));
   $("cards").innerHTML = list.map((c) => `
-    <div class="card${c.weak ? " weak" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
+    <div class="card${c.weak ? " weak" : ""}${c.archived ? " archived" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
       <div class="line">
         <input type="checkbox" class="sel" ${selected.has(c.id) ? "checked" : ""}>
         <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
@@ -666,7 +693,7 @@ function render() {
           <div class="thai">${esc(c.thai)}</div>
           <div class="roman">${esc(c.roman)}</div>
         </div>
-        <div class="english"><span class="flag" title="需加強">${ICON.flag}</span>${esc(c.english)}</div>
+        <div class="english"><span class="flag" title="需加強">${ICON.flag}</span><span class="arch" title="已封存">${ICON.archive}</span>${esc(c.english)}</div>
       </div>
       ${c.note ? `<div class="mynote">我的備註：${esc(c.note)}</div>` : ""}
       ${c.detail ? `<div class="detail"${opened.has(c.id) ? "" : " hidden"}>${md(c.detail)}</div>` : ""}
@@ -696,6 +723,21 @@ const UNIT = { cards: "張字卡", videos: "部影片", articles: "篇文章" };
 const nameOf = (x) => x.thai ?? (x.title || x.videoId || "");
 
 $("addBtn").onclick = () => { if (!readOnly()) OPEN_DLG[page](); };
+// 封存：從一般列表收起來但不刪除（測驗仍可選「封存」範圍抽考）；在封存分頁則是取消封存
+$("archiveBtn").onclick = async () => {
+  if (readOnly() || page !== "cards") return;
+  const items = cards.filter((c) => selected.has(c.id));
+  if (!items.length) return;
+  const toArchive = typeFilter !== "archived";
+  const batch = writeBatch(db);
+  items.forEach((c) => batch.update(doc(db, "cards", c.id), toArchive ? { archived: true, weak: false } : { archived: false }));
+  try {
+    await batch.commit();
+    selected.clear();
+  } catch (err) {
+    alert("操作失敗：" + err.message);
+  }
+};
 $("editBtn").onclick = () => {
   if (readOnly()) return;
   const item = poolOf().find((x) => selected.has(x.id));
@@ -753,6 +795,7 @@ function openDlg(c) {
   $("fType").value = c ? typeOf(c) : typeFilter === "sentence" ? "sentence" : "word";
   $("fNote").value = c?.note ?? "";
   $("fWeak").checked = !!c?.weak;
+  $("fArchived").checked = !!c?.archived;
   $("fThai").value = stripSpaces(c?.thai ?? "");
   $("fRoman").value = c?.roman ?? "";
   $("fEnglish").value = c?.english ?? "";
@@ -793,7 +836,8 @@ $("form").onsubmit = async () => {
     english: $("fEnglish").value.trim(),
     detail: $("fDetail").value,
     note: $("fNote").value.trim(),
-    weak: $("fWeak").checked,
+    archived: $("fArchived").checked,
+    weak: $("fArchived").checked ? false : $("fWeak").checked, // 封存的字卡不算需加強
     tags: cardTags.get(),
   };
   if (editingId) await updateDoc(doc(db, "cards", editingId), data);
@@ -808,7 +852,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     cards: cards.map((c) => ({
       id: c.id, type: typeOf(c), thai: c.thai ?? "", roman: c.roman ?? "", english: c.english ?? "",
-      detail: c.detail ?? "", tags: tagsOf(c), note: c.note ?? "", weak: !!c.weak, misses: c.misses ?? 0,
+      detail: c.detail ?? "", tags: tagsOf(c), note: c.note ?? "", weak: !!c.weak, archived: !!c.archived, misses: c.misses ?? 0,
       createdAt: iso(c.createdAt),
     })),
     videos: videos.map((v) => ({
@@ -1069,6 +1113,9 @@ $("selAdd").onclick = () => {
 
 /* ---------- 啟動 ---------- */
 go(location.hash.slice(1));
+
+
+
 
 
 

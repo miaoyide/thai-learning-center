@@ -48,6 +48,7 @@
       <input id="search">
       <button id="importBtn" title="一次貼上多筆資料">匯入</button>
       <button id="editBtn" disabled>編輯</button>
+      <button id="archiveBtn" disabled title="封存：從一般列表收起來但不刪除，測驗仍可抽考">封存</button>
       <button id="delBtn" disabled>刪除</button>
       <button id="addBtn">＋ 新增</button>
     </div>
@@ -58,6 +59,7 @@
         <button data-type="word">單字</button>
         <button data-type="sentence">句子</button>
         <button data-type="weak" id="weakTab">需加強</button>
+        <button data-type="archived" id="archivedTab">封存</button>
         <button id="maskBtn" title="遮罩：隱藏泰文與拼音，點一下卡片顯示答案">遮罩</button>
       </span>
     </div>
@@ -100,6 +102,7 @@
       <input id="fNote">
     </label>
     <label class="chk"><input type="checkbox" id="fWeak"> 標記為「需加強」</label>
+    <label class="chk"><input type="checkbox" id="fArchived"> 封存（不顯示在一般列表，測驗仍可抽考）</label>
     <label>標籤（情境，點選或輸入後按 Enter）
       <div class="taginput" id="fTags"><input placeholder="例如：餐廳"></div>
     </label>
@@ -179,6 +182,7 @@
 <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
 
 
