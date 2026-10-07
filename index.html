@@ -47,9 +47,6 @@
     <div class="toolbar">
       <input id="search">
       <button id="importBtn" title="一次貼上多筆資料">匯入</button>
-      <button id="editBtn" disabled>編輯</button>
-      <button id="archiveBtn" disabled title="封存：從一般列表收起來但不刪除，測驗仍可抽考">封存</button>
-      <button id="delBtn" disabled>刪除</button>
       <button id="addBtn">＋ 新增</button>
     </div>
     <div class="tabs" id="tabs">
@@ -75,7 +72,15 @@
   <div id="reader" hidden></div>
 </main>
 
-<div id="loginHint" class="loginbox">
+<!-- 勾選項目後固定浮在畫面底部，捲到哪都能直接操作 -->
+<div id="selBar" hidden>
+  <span id="selCount"></span>
+  <button id="editBtn" disabled>編輯</button>
+  <button id="archiveBtn" disabled title="封存：從一般列表收起來但不刪除，測驗仍可抽考">封存</button>
+  <button id="delBtn" disabled>刪除</button>
+</div>
+
+<div id="loginHint"class="loginbox">
   <p>請先以 Google 登入。</p>
   <p id="loginMsg" class="err"></p>
   <button id="loginBtn">Google 登入</button>

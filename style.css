@@ -448,3 +448,10 @@ button.say:not(:first-child) { margin-left:.3em; }
 .quizscope button.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); font-weight:600; }
 .quizact button.on[data-q="archive"] { background:var(--muted); border-color:var(--muted); color:var(--bg); }
 .guest #archiveBtn, .guest #archivedTab, .guest [data-go="archived"], .guest .arch { display:none !important; }
+
+/* 勾選後浮在底部的操作列 */
+#selBar { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:30; display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.28); max-width:calc(100vw - 24px); }
+#selBar button { white-space:nowrap; flex:none; }
+#selBar button:disabled { opacity:.4; cursor:default; }
+#selCount { color:var(--muted); font-size:.9rem; white-space:nowrap; margin-right:4px; }
+.guest #selBar { display:none !important; }

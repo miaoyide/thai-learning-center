@@ -422,6 +422,7 @@ function applyView() {
   $("browse").hidden = page === "home" || page === "quiz" || !!viewing;
   $("player").hidden = viewing !== "video";
   $("reader").hidden = viewing !== "article";
+  $("selBar").hidden = selected.size === 0 || $("browse").hidden; // 只在列表頁顯示
 }
 
 function go(p) {
@@ -429,6 +430,7 @@ function go(p) {
   if (readOnly() && p === "quiz") p = "home"; // 訪客不能做隨堂測驗
   if (p !== page) {
     selected.clear();
+    updateBar();
     tagFilter.clear();
     $("search").value = "";
   }
@@ -568,6 +570,8 @@ const importTags = tagInput($("iTags"));
 
 /* ---------- 渲染 ---------- */
 function updateBar() {
+  $("selBar").hidden = selected.size === 0 || $("browse").hidden;
+  $("selCount").textContent = `已選 ${selected.size} 項`;
   $("editBtn").disabled = selected.size !== 1;
   $("delBtn").disabled = selected.size === 0;
   $("delBtn").textContent = selected.size > 1 ? `刪除 (${selected.size})` : "刪除";
