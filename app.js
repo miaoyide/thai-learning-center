@@ -444,6 +444,7 @@ function go(p) {
   $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
   $("archiveBtn").hidden = p !== "cards"; // 封存只用於字卡
+  $("archiveHint").hidden = p !== "cards";
   $("search").placeholder = SEARCH_HINT[p] || "";
   applyView();
   render();
@@ -827,6 +828,27 @@ $("editBtn").onclick = () => {
   const item = poolOf().find((x) => selected.has(x.id));
   if (item) OPEN_DLG[page](item);
 };
+// 快捷鍵一律是 Alt + 字母：N 新增、M 編輯（需先勾選一項）、A 封存；Esc 取消勾選。
+// 用 e.code 判斷實體按鍵，Mac 的 Option 組合字不會干擾。
+const setKeyTip = (open) => {
+  $("keyTip").classList.toggle("open", open);
+  $("keyTipBtn").setAttribute("aria-expanded", open);
+};
+$("keyTipBtn").onclick = (e) => { e.stopPropagation(); setKeyTip(!$("keyTip").classList.contains("open")); };
+document.addEventListener("click", () => setKeyTip(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setKeyTip(false); });
+const SHORTCUTS ={ KeyN: "addBtn", KeyM: "editBtn", KeyA: "archiveBtn" };
+document.addEventListener("keydown", (e) => {
+  if (document.querySelector("dialog[open]") || readOnly() || $("browse").hidden) return;
+  const btn = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && $(SHORTCUTS[e.code] || "");
+  if (btn) {
+    e.preventDefault();
+    if (!btn.hidden && !btn.disabled) btn.click();
+  } else if (e.key === "Escape" && selected.size && !e.target.closest?.("input, textarea")) {
+    selected.clear();
+    render();
+  }
+});
 $("delBtn").onclick = async () => {
   if (readOnly()) return;
   const items = poolOf().filter((c) => selected.has(c.id));

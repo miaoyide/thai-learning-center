@@ -47,7 +47,17 @@
     <div class="toolbar">
       <input id="search">
       <button id="importBtn" title="一次貼上多筆資料">匯入</button>
-      <button id="addBtn">＋ 新增</button>
+      <button id="addBtn" title="快捷鍵：Alt+N">＋ 新增</button>
+      <div class="keytip" id="keyTip">
+        <button type="button" id="keyTipBtn" class="keytipbtn" aria-label="快捷鍵說明" aria-expanded="false">?</button>
+        <div class="keytippop" role="tooltip">
+          <strong>快捷鍵</strong>
+          <div><kbd>Alt</kbd>+<kbd>N</kbd><span>新增</span></div>
+          <div><kbd>Alt</kbd>+<kbd>M</kbd><span>編輯（先勾選一項）</span></div>
+          <div id="archiveHint"><kbd>Alt</kbd>+<kbd>A</kbd><span>封存／取消封存</span></div>
+          <div><kbd>Esc</kbd><span>取消勾選</span></div>
+        </div>
+      </div>
     </div>
     <div class="tabs" id="tabs">
       <input type="checkbox" id="selAll" title="全選（目前列表）">
@@ -75,8 +85,8 @@
 <!-- 勾選項目後固定浮在畫面底部，捲到哪都能直接操作 -->
 <div id="selBar" hidden>
   <span id="selCount"></span>
-  <button id="editBtn" disabled>編輯</button>
-  <button id="archiveBtn" disabled title="封存：從一般列表收起來但不刪除，測驗仍可抽考">封存</button>
+  <button id="editBtn" disabled title="快捷鍵：Alt+M">編輯</button>
+  <button id="archiveBtn" disabled title="封存：從一般列表收起來但不刪除，測驗仍可抽考（Alt+A）">封存</button>
   <button id="delBtn" disabled>刪除</button>
 </div>
 

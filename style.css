@@ -455,3 +455,16 @@ button.say:not(:first-child) { margin-left:.3em; }
 #selBar button:disabled { opacity:.4; cursor:default; }
 #selCount { color:var(--muted); font-size:.9rem; white-space:nowrap; margin-right:4px; }
 .guest #selBar { display:none !important; }
+
+
+/* 工具列右側的「?」：滑過或點擊顯示快捷鍵 */
+.keytip { position:relative; flex:none; }
+.keytipbtn { width:32px; height:32px; padding:0; border-radius:50%; color:var(--muted); }
+.keytippop { display:none; position:absolute; right:0; top:calc(100% + 6px); z-index:40; min-width:220px; padding:10px 12px; background:var(--card); border:1px solid var(--border); border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.25); font-size:.85rem; line-height:1.9; color:var(--fg); }
+.keytip:hover .keytippop, .keytip.open .keytippop { display:block; }
+.keytippop strong { display:block; margin-bottom:2px; }
+.keytippop div { display:flex; align-items:center; gap:2px; }
+.keytippop span { margin-left:10px; color:var(--muted); }
+.keytippop kbd { font:inherit; font-size:.75rem; padding:0 5px; border:1px solid var(--border); border-bottom-width:2px; border-radius:4px; background:var(--bg); color:var(--fg); }
+.guest .keytip { display:none !important; }
+@media (max-width:700px), (hover:none) { .keytip { display:none; } }
