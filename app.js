@@ -78,8 +78,12 @@ const thaiOf = (text) => (text.match(/[฀-๿]+(?:[ \t]+[฀-๿]+)*/g) || []).
 // 渲染 Markdown 後，在「本身含泰文的那一行」最前面加喇叭按鈕（清單項目、段落、表格格子、標題）
 const SAY_BLOCKS = "li, p, td, th, h1, h2, h3, h4, h5, h6";
 const SKIP_IN_OWN_TEXT = /^(UL|OL|P|BLOCKQUOTE|TABLE|PRE|DIV|H[1-6]|LI)$/; // 只算這一層自己的文字，不含巢狀區塊
+// 每一段要加喇叭的文字：泰文是連續泰文；英文是以空白相連的英文字（句尾的 . ! ? 一起念）
+const SAY_RUN = {
+  th: /[฀-๿]+(?:[ \t]+[฀-๿]+)*/g,
+  en: /[A-Za-z][A-Za-z0-9'’-]*(?:[,;:]?[ \t]+[A-Za-z][A-Za-z0-9'’-]*)*[.!?]?/g,
+};
 function addSayButtons(html) {
-  if (lang !== "th") return html; // 說明裡的自動喇叭只認泰文
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   tpl.content.querySelectorAll(SAY_BLOCKS).forEach((el) => {
@@ -96,7 +100,7 @@ function addSayButtons(html) {
     let full = "";
     for (const n of nodes) { starts.push(full.length); full += n.nodeValue; }
     // 每一段泰文各放一個按鈕，只念那一段。從後往前插入，前面的位置才不會被改動
-    const runs = [...full.matchAll(/[\u0E00-\u0E7F]+(?:[ \t]+[\u0E00-\u0E7F]+)*/g)];
+    const runs = [...full.matchAll(SAY_RUN[lang])];
     for (const m of runs.reverse()) {
       let i = starts.length - 1;
       while (starts[i] > m.index) i--; // 這段泰文開頭落在哪個文字節點（可能跨粗體／斜體等標籤）
