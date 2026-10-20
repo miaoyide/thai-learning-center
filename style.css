@@ -468,3 +468,11 @@ button.say:not(:first-child) { margin-left:.3em; }
 .keytippop kbd { font:inherit; font-size:.75rem; padding:0 5px; border:1px solid var(--border); border-bottom-width:2px; border-radius:4px; background:var(--bg); color:var(--fg); }
 .guest .keytip { display:none !important; }
 @media (max-width:700px), (hover:none) { .keytip { display:none; } }
+
+/* 語言選擇（登入後的第一步）與英文版 */
+.langopts { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-top:20px; }
+.langopts button { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:150px; padding:22px 28px !important; }
+.langopts button b { font-size:1.4rem; }
+.langopts button span { color:var(--muted); font-size:.85rem; }
+.langopts button.on { border-color:var(--accent); }
+.lang-en .thaionly { display:none !important; }

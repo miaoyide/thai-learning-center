@@ -12,13 +12,13 @@
   if (theme === "dark") theme = "hollow"; // 舊的「深色」主題已改為 Hollow Knight
   document.documentElement.dataset.theme = THEME_IDS.includes(theme) ? theme : "light";
 </script>
-<title>泰語學習</title>
+<title>語言學習</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <button id="menuBtn" aria-label="開啟選單" aria-expanded="false">☰</button>
-  <h1><a href="#home">泰語學習</a></h1>
+  <h1><a href="#home" id="siteTitle">語言學習</a></h1>
   <!-- 桌面版：內容直接排在頁首；手機版：變成從左側滑出的側邊欄 -->
   <div id="sidebar">
     <nav id="nav" hidden>
@@ -28,6 +28,7 @@
       <button data-page="videos">影片</button>
     </nav>
     <div class="hdr-right">
+      <button id="langBtn" title="切換學習語言" hidden>語言</button>
       <div class="themepick">
         <button id="themeBtn" title="切換主題" aria-haspopup="true">主題</button>
         <div id="themeMenu" hidden></div>
@@ -90,7 +91,16 @@
   <button id="delBtn" disabled>刪除</button>
 </div>
 
-<div id="loginHint"class="loginbox">
+<!-- 登入（或進入訪客模式）後先選要練習的語言 -->
+<div id="langPick" class="loginbox" hidden>
+  <h2>今天想練習哪一種語言？</h2>
+  <div class="langopts">
+    <button data-lang="th"><b>泰文</b><span>Thai</span></button>
+    <button data-lang="en"><b>英文</b><span>English</span></button>
+  </div>
+</div>
+
+<div id="loginHint" class="loginbox">
   <p>請先以 Google 登入。</p>
   <p id="loginMsg" class="err"></p>
   <button id="loginBtn">Google 登入</button>
@@ -110,9 +120,9 @@
     <label>分類
       <select id="fType"><option value="word">單字</option><option value="sentence">句子</option></select>
     </label>
-    <label>泰文 <input id="fThai" required lang="th"></label>
-    <label>羅馬拼音 <input id="fRoman"></label>
-    <label>英文 <input id="fEnglish"></label>
+    <label><span id="lblTerm">泰文</span> <input id="fThai" required lang="th"></label>
+    <label class="thaionly">羅馬拼音 <input id="fRoman"></label>
+    <label><span id="lblMeaning">英文</span> <input id="fEnglish"></label>
     <label>我的備註（例如容易搞混的地方，展開字卡時顯示）
       <input id="fNote">
     </label>
@@ -134,7 +144,7 @@
 <dialog id="importDlg">
   <form id="importForm" method="dialog">
     <h2>批次匯入字卡</h2>
-    <p class="hint">一行一筆：<code>泰文 | 羅馬拼音 | 英文</code>（也可用 Tab 分隔，可直接從試算表貼上）。泰文後面的詞性如 <code>(v)</code> 會自動移到英文後面。</p>
+    <p class="hint" id="importHint">一行一筆：<code>泰文 | 羅馬拼音 | 英文</code>（也可用 Tab 分隔，可直接從試算表貼上）。泰文後面的詞性如 <code>(v)</code> 會自動移到英文後面。</p>
     <label>分類（套用到全部）
       <select id="iType"><option value="word">單字</option><option value="sentence">句子</option></select>
     </label>
@@ -160,13 +170,13 @@
     <label>標籤（情境，點選或輸入後按 Enter）
       <div class="taginput" id="vTags"><input placeholder="例如：旅遊"></div>
     </label>
-    <label>泰文字幕（YouTube「顯示轉錄稿」複製，或 .srt / .vtt 內容）
+    <label><span id="vLblTerm">泰文</span>字幕（YouTube「顯示轉錄稿」複製，或 .srt / .vtt 內容）
       <textarea id="vThai" rows="8" required lang="th" placeholder="0:12&#10;สวัสดีครับ&#10;0:15&#10;ขอยืมเงินหน่อย"></textarea>
     </label>
-    <label>英文翻譯（選填，一行對應一句泰文）
+    <label><span id="vLblMeaning">英文</span>翻譯（選填，一行對應一句泰文）
       <textarea id="vEnglish" rows="5"></textarea>
     </label>
-    <label>羅馬拼音（選填，一行對應一句泰文）
+    <label class="thaionly">羅馬拼音（選填，一行對應一句泰文）
       <textarea id="vRoman" rows="5"></textarea>
     </label>
     <div class="row">

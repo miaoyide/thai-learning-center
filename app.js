@@ -15,6 +15,24 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const $ = (id) => document.getElementById(id);
 
+/* ---------- 語言（泰文／英文） ---------- */
+// 每筆資料都有 lang 欄位；沒有的舊資料一律視為泰文。欄位名稱沿用 thai／english：
+// thai＝正在學的語言的文字，english＝它的意思（泰文版是英文，英文版是中文），roman 只有泰文版使用。
+const LANGS = {
+  th: { name: "泰文", site: "泰語學習", tts: "th", term: "泰文", meaning: "英文", roman: true },
+  en: { name: "英文", site: "英語學習", tts: "en", term: "英文", meaning: "中文", roman: false },
+};
+let lang = "th";
+let langChosen = false; // 本次登入是否已選過語言（存在 sessionStorage，重新整理不會再問；登出就清掉）
+try {
+  const s = localStorage.getItem("lang");
+  if (LANGS[s]) lang = s;
+  langChosen = sessionStorage.getItem("langChosen") === "1";
+} catch (e) {}
+const L = () => LANGS[lang];
+const langOf = (d) => d.lang || "th";
+const raw = { cards: [], videos: [], articles: [] }; // Firestore 回來的全部資料；畫面只用目前語言的那一份
+
 /* ---------- 狀態 ---------- */
 let cards = [];
 let videos = [];
@@ -61,6 +79,7 @@ const thaiOf = (text) => (text.match(/[฀-๿]+(?:[ \t]+[฀-๿]+)*/g) || []).
 const SAY_BLOCKS = "li, p, td, th, h1, h2, h3, h4, h5, h6";
 const SKIP_IN_OWN_TEXT = /^(UL|OL|P|BLOCKQUOTE|TABLE|PRE|DIV|H[1-6]|LI)$/; // 只算這一層自己的文字，不含巢狀區塊
 function addSayButtons(html) {
+  if (lang !== "th") return html; // 說明裡的自動喇叭只認泰文
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   tpl.content.querySelectorAll(SAY_BLOCKS).forEach((el) => {
@@ -254,9 +273,69 @@ try { guest = sessionStorage.getItem("guest") === "1"; } catch (e) {}
 let signedIn = false;
 const readOnly = () => guest && !signedIn;
 
-const watch = (name, label, set) =>
+function applyLang() {
+  cards = raw.cards.filter((d) => langOf(d) === lang);
+  videos = raw.videos.filter((d) => langOf(d) === lang);
+  articles = raw.articles.filter((d) => langOf(d) === lang);
+}
+
+// 依目前語言更新畫面上與語言有關的文字與欄位
+function applyLangUI() {
+  const active = (signedIn || guest) && langChosen;
+  document.body.classList.toggle("lang-en", lang === "en");
+  $("siteTitle").textContent = active ? L().site : "語言學習";
+  document.title = $("siteTitle").textContent;
+  $("lblTerm").textContent = $("vLblTerm").textContent = L().term;
+  $("lblMeaning").textContent = $("vLblMeaning").textContent = L().meaning;
+  for (const id of ["fThai", "vThai", "aTitle", "aBody"]) $(id).lang = lang;
+  $("maskBtn").title = `遮罩：隱藏${L().term}${L().roman ? "與拼音" : ""}，點一下卡片顯示答案`;
+  $("importHint").innerHTML = L().roman
+    ? "一行一筆：<code>泰文 | 羅馬拼音 | 英文</code>（也可用 Tab 分隔，可直接從試算表貼上）。泰文後面的詞性如 <code>(v)</code> 會自動移到英文後面。"
+    : "一行一筆：<code>英文 | 中文</code>（也可用 Tab 分隔，可直接從試算表貼上）。英文後面的詞性如 <code>(v)</code> 會自動移到中文後面。";
+  $("importText").placeholder = L().roman ? "นั่ง | nâng | sit\nยืน (v) | yuuen | stand" : "borrow (v) | 借\nCan I borrow some money? | 我可以借一點錢嗎？";
+  $("search").placeholder = searchHint();
+  document.querySelectorAll("#langPick [data-lang]").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+}
+const searchHint = () => ({
+  cards: `搜尋${L().term} / ${L().roman ? "拼音 / " : ""}${L().meaning}…`,
+  videos: "搜尋影片標題 / 標籤…",
+  articles: "搜尋文章標題 / 內容 / 標籤…",
+}[page] || "");
+
+function chooseLang(l) {
+  lang = l;
+  langChosen = true;
+  try { localStorage.setItem("lang", l); sessionStorage.setItem("langChosen", "1"); } catch (e) {}
+  selected.clear();
+  tagFilter.clear();
+  revealed.clear();
+  opened.clear();
+  quizIds = [];
+  $("search").value = "";
+  applyLang();
+  applyAuthUI();
+  navigate("home");
+}
+function resetLangChoice() {
+  langChosen = false;
+  try { sessionStorage.removeItem("langChosen"); } catch (e) {}
+}
+$("langPick").onclick = (e) => {
+  const b = e.target.closest("button[data-lang]");
+  if (b) chooseLang(b.dataset.lang);
+};
+$("langBtn").onclick = () => {
+  setSidebar(false);
+  closeVideo();
+  closeArticle();
+  resetLangChoice();
+  applyAuthUI();
+};
+
+const watch = (name, label) =>
   onSnapshot(query(collection(db, name), orderBy("createdAt", "desc")), (snap) => {
-    set(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    raw[name] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    applyLang();
     render();
   }, (e) => {
     if (name === "cards" && guest && !signedIn) {
@@ -270,14 +349,15 @@ const watch = (name, label, set) =>
 function startData() {
   stopData();
   unsubs = [
-    watch("cards", "字卡", (v) => (cards = v)),
-    watch("videos", "影片", (v) => (videos = v)),
-    watch("articles", "文章", (v) => (articles = v)),
+    watch("cards", "字卡"),
+    watch("videos", "影片"),
+    watch("articles", "文章"),
   ];
 }
 function stopData() {
   unsubs.forEach((u) => u());
   unsubs = [];
+  raw.cards = raw.videos = raw.articles = [];
   cards = [];
   videos = [];
   articles = [];
@@ -287,10 +367,14 @@ function stopData() {
 
 function applyAuthUI() {
   const active = signedIn || guest;
+  const needLang = active && !langChosen; // 登入後的第一步：選擇練習哪一種語言
   document.body.classList.toggle("guest", guest && !signedIn);
-  $("app").hidden = !active;
-  $("nav").hidden = !active;
+  $("app").hidden = !active || needLang;
+  $("nav").hidden = !active || needLang;
+  $("langPick").hidden = !needLang;
+  $("langBtn").hidden = !active;
   $("loginHint").hidden = active;
+  applyLangUI();
   $("authBox").innerHTML = signedIn
     ? `<button id="outBtn">登出</button>`
     : guest
@@ -307,6 +391,7 @@ function applyAuthUI() {
 function enterGuest() {
   guest = true;
   try { sessionStorage.setItem("guest", "1"); } catch (e) {}
+  resetLangChoice();
   startData();
   applyAuthUI();
   go(location.hash.slice(1));
@@ -314,6 +399,7 @@ function enterGuest() {
 function exitGuest() {
   guest = false;
   try { sessionStorage.removeItem("guest"); } catch (e) {}
+  resetLangChoice();
   stopData();
   applyAuthUI();
 }
@@ -354,13 +440,14 @@ onAuthStateChanged(auth, async (user) => {
   } else if (guest) {
     startData(); // 重新整理後仍停留在訪客模式
   } else {
+    resetLangChoice();
     stopData();
   }
   applyAuthUI();
 });
 
 /* ---------- 語音 ---------- */
-// 固定用 Google 翻譯的泰語語音（非官方網址，若失效改寫這個函式即可），所有裝置聽到的聲音一致。
+// 固定用 Google 翻譯的語音（依目前語言：泰語或英語；非官方網址，若失效改寫這個函式即可），所有裝置聽到的聲音一致。
 let audio = null;
 let speakToken = 0;
 // 這個語音端點一次只能念短文字，長段落依空白切成小段，依序播放
@@ -385,7 +472,7 @@ function speak(text, rate) {
   const chunks = chunkText(text);
   const playAt = (i) => {
     if (token !== speakToken || i >= chunks.length) return;
-    audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=th&q=${encodeURIComponent(chunks[i])}`);
+    audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${L().tts}&q=${encodeURIComponent(chunks[i])}`);
     audio.playbackRate = rate;
     audio.preservesPitch = true;
     audio.onended = () => playAt(i + 1);
@@ -410,12 +497,6 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") setSidebar
 $("authBox").addEventListener("click", (e) => { if (e.target.closest("button")) setSidebar(false); });
 
 /* ---------- 頁面切換（#home / #cards / #videos / #articles） ---------- */
-const SEARCH_HINT = {
-  cards: "搜尋泰文 / 拼音 / 英文…",
-  videos: "搜尋影片標題 / 標籤…",
-  articles: "搜尋文章標題 / 內容 / 標籤…",
-};
-
 function applyView() {
   $("home").hidden = page !== "home";
   $("quiz").hidden = page !== "quiz";
@@ -445,7 +526,7 @@ function go(p) {
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
   $("archiveBtn").hidden = p !== "cards"; // 封存只用於字卡
   $("archiveHint").hidden = p !== "cards";
-  $("search").placeholder = SEARCH_HINT[p] || "";
+  $("search").placeholder = searchHint();
   applyView();
   render();
   scrollTo(0, 0);
@@ -586,7 +667,7 @@ function updateBar() {
 function renderHome() {
   $("home").innerHTML = `
     <h2 class="welcome">歡迎回來</h2>
-    <p class="muted">今天想學點什麼？</p>
+    <p class="muted">今天想學點什麼？（目前練習：${L().name}）</p>
     <div class="tiles">
       <button class="tile" data-go="cards"><b>${cards.filter((c) => !c.archived).length}</b><span>字卡</span></button>
       <button class="tile" data-go="weak"><b>${cards.filter((c) => c.weak && !c.archived).length}</b><span>需加強</span></button>
@@ -685,14 +766,14 @@ function renderQuiz(force = false) {
       <span class="muted">抽題範圍</span>
       ${QUIZ_SCOPES.map(([k, n]) => `<button data-scope="${k}">${n}</button>`).join("")}
     </div>
-    <p class="muted quizhint">看英文回想泰文，點一下卡片顯示答案，再標記「記得了」「需加強」，或把已經確定學會的「封存」。</p>
+    <p class="muted quizhint">看${L().meaning}回想${L().term}，點一下卡片顯示答案，再標記「記得了」「需加強」，或把已經確定學會的「封存」。</p>
     ${list.map((c) => `
       <div class="card quiz${c.weak ? " weak" : ""}${c.archived ? " archived" : ""}${revealed.has(c.id) ? " reveal" : ""}${opened.has(c.id) ? " open" : ""}" data-id="${c.id}">
         <div class="line quizline">
           <div class="english"><span class="flag" title="需加強">${ICON.flag}</span><span class="arch" title="已封存">${ICON.archive}</span>${esc(c.english)}</div>
           <div class="words">
             <div class="thai">${esc(c.thai)}</div>
-            <div class="roman">${esc(c.roman)}</div>
+            ${L().roman ? `<div class="roman">${esc(c.roman)}</div>` : ""}
           </div>
           <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
         </div>
@@ -776,7 +857,7 @@ function render() {
         <button class="icon play" data-act="play1" title="播放">${ICON.play}</button>
         <div class="words">
           <div class="thai">${esc(c.thai)}</div>
-          <div class="roman">${esc(c.roman)}</div>
+          ${L().roman ? `<div class="roman">${esc(c.roman)}</div>` : ""}
         </div>
         <div class="english"><span class="flag" title="需加強">${ICON.flag}</span><span class="arch" title="已封存">${ICON.archive}</span>${esc(c.english)}</div>
       </div>
@@ -902,15 +983,17 @@ function openDlg(c) {
   $("fNote").value = c?.note ?? "";
   $("fWeak").checked = !!c?.weak;
   $("fArchived").checked = !!c?.archived;
-  $("fThai").value = stripSpaces(c?.thai ?? "");
+  $("fThai").value = termClean(c?.thai ?? "");
   $("fRoman").value = c?.roman ?? "";
   $("fEnglish").value = c?.english ?? "";
   $("fDetail").value = c?.detail ?? "";
   cardTags.set(c?.tags);
   $("dlg").showModal();
 }
+// 泰文不用空白分詞，貼上時自動移除空白；英文要保留空白，只去掉頭尾
+const termClean = (s) => (lang === "th" ? stripSpaces(s) : s.trim());
 $("fThai").addEventListener("input", (e) => {
-  if (e.isComposing) return;
+  if (e.isComposing || lang !== "th") return;
   const el = e.target;
   const cleaned = stripSpaces(el.value);
   if (cleaned === el.value) return;
@@ -945,9 +1028,10 @@ enableRichPaste($("aBody"));
 $("cancelBtn").onclick = () => $("dlg").close();
 $("form").onsubmit = async () => {
   const data = {
+    lang,
     type: $("fType").value,
-    thai: stripSpaces($("fThai").value),
-    roman: $("fRoman").value.trim(),
+    thai: termClean($("fThai").value),
+    roman: L().roman ? $("fRoman").value.trim() : "",
     english: $("fEnglish").value.trim(),
     detail: $("fDetail").value,
     note: $("fNote").value.trim(),
@@ -963,25 +1047,25 @@ $("form").onsubmit = async () => {
 function exportBackup() {
   if (readOnly()) return;
   const iso = (t) => (t?.toDate ? t.toDate().toISOString() : null);
-  const data = {
+  const data = { // 兩種語言的資料都會匯出（以 lang 區分）
     exportedAt: new Date().toISOString(),
-    cards: cards.map((c) => ({
-      id: c.id, type: typeOf(c), thai: c.thai ?? "", roman: c.roman ?? "", english: c.english ?? "",
+    cards: raw.cards.map((c) => ({
+      id: c.id, lang: langOf(c), type: typeOf(c), thai: c.thai ?? "", roman: c.roman ?? "", english: c.english ?? "",
       detail: c.detail ?? "", tags: tagsOf(c), note: c.note ?? "", weak: !!c.weak, archived: !!c.archived, misses: c.misses ?? 0,
       createdAt: iso(c.createdAt),
     })),
-    videos: videos.map((v) => ({
-      id: v.id, title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
+    videos: raw.videos.map((v) => ({
+      id: v.id, lang: langOf(v), title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
       cues: v.cues ?? [], tags: tagsOf(v), createdAt: iso(v.createdAt),
     })),
-    articles: articles.map((a) => ({
-      id: a.id, title: a.title ?? "", subtitle: a.subtitle ?? "", body: a.body ?? "", tags: tagsOf(a),
+    articles: raw.articles.map((a) => ({
+      id: a.id, lang: langOf(a), title: a.title ?? "", subtitle: a.subtitle ?? "", body: a.body ?? "", tags: tagsOf(a),
       createdAt: iso(a.createdAt),
     })),
   };
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-  a.download = `thai-learning-${data.exportedAt.slice(0, 10)}.json`;
+  a.download = `language-learning-${data.exportedAt.slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -992,11 +1076,13 @@ function parseImport(text) {
   const rows = [];
   for (const line of text.replace(/\r/g, "").split("\n")) {
     if (!line.trim()) continue;
-    let [thai = "", roman = "", english = ""] = line.split(/\t|\|/).map((s) => s.trim());
+    const cols = line.split(/\t|\|/).map((s) => s.trim());
+    // 泰文：泰文 | 拼音 | 英文；英文：英文 | 中文（沒有拼音欄）
+    let [thai = "", roman = "", english = ""] = L().roman ? cols : [cols[0], "", cols[1]];
     const m = thai.match(/^(.*?)\s*[（(]\s*([A-Za-z.]+)\s*[)）]\s*$/);
     const pos = m ? m[2] : "";
     if (m) thai = m[1];
-    thai = stripSpaces(thai);
+    thai = termClean(thai);
     if (!thai) continue;
     rows.push({ thai, roman, english: pos ? `${english} (${pos})`.trim() : english });
   }
@@ -1029,7 +1115,7 @@ $("importForm").onsubmit = async (e) => {
     const base = Date.now();
     // 時間依序遞減，列表（新到舊）就會維持貼上的順序
     rows.forEach((r, i) => batch.set(doc(collection(db, "cards")), {
-      type, ...r, detail: "", tags, createdAt: Timestamp.fromMillis(base - i),
+      lang, type, ...r, detail: "", tags, createdAt: Timestamp.fromMillis(base - i),
     }));
     await batch.commit();
     $("importText").value = "";
@@ -1052,7 +1138,7 @@ function openVideo(v) {
   unmountVideo = mountVideo($("player"), v, {
     esc, ICON, onBack: closeVideo,
     addCard: (c) => readOnly() ? Promise.reject(new Error("訪客模式不能新增字卡")) : addDoc(collection(db, "cards"), {
-      type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", tags: v.tags ?? [],
+      lang, type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", tags: v.tags ?? [],
       createdAt: serverTimestamp(),
     }),
   });
@@ -1099,7 +1185,7 @@ $("vform").onsubmit = async (e) => {
   btn.disabled = true;
   try {
     const title = $("vTitle").value.trim() || (await fetchTitle(url)) || videoId;
-    const data = { title, url, videoId, cues, tags: videoTags.get() };
+    const data = { lang, title, url, videoId, cues, tags: videoTags.get() };
     if (editingVideoId) await updateDoc(doc(db, "videos", editingVideoId), data);
     else await addDoc(collection(db, "videos"), { ...data, createdAt: serverTimestamp() });
     $("vdlg").close();
@@ -1123,7 +1209,7 @@ function renderReader() {
       </div>
       <button id="aEdit" class="icon" title="編輯">${ICON.edit}</button>
     </div>
-    <article class="detail article-body" lang="th">${md(a.body)}</article>`;
+    <article class="detail article-body" lang="${lang}">${md(a.body)}</article>`;
 }
 function openArticle(a) {
   if (!a) return;
@@ -1157,6 +1243,7 @@ function openArticleDlg(a) {
 $("aCancel").onclick = () => $("adlg").close();
 $("aform").onsubmit = async () => {
   const data = {
+    lang,
     title: $("aTitle").value.trim(),
     subtitle: $("aSubtitle").value.trim(),
     body: $("aBody").value,
@@ -1183,8 +1270,9 @@ function checkSelection() {
   const node = range.commonAncestorContainer;
   const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail, .cue");
   if (!host) return hideSelPop();
-  // 只取選取範圍內的泰文
-  selThai = thaiOf(sel.toString());
+  // 泰文版只取選取範圍內的泰文；英文版取整段選取文字（需含英文字母）
+  const txt = sel.toString().replace(/\s+/g, " ").trim();
+  selThai = lang === "th" ? thaiOf(sel.toString()) : /[A-Za-z]/.test(txt) ? txt.slice(0, 300) : "";
   if (!selThai) return hideSelPop();
   $("selText").textContent = selThai;
   selPop.hidden = false;
@@ -1221,9 +1309,9 @@ $("selAdd").onclick = () => {
   hideSelPop();
   getSelection().removeAllRanges();
   openDlg();
-  $("fThai").value = stripSpaces(thai);
+  $("fThai").value = termClean(thai);
   $("fType").value = /\s/.test(thai) ? "sentence" : "word"; // 有空白視為句子，否則單字（可手動改）
-  $("fRoman").focus();
+  (L().roman ? $("fRoman") : $("fEnglish")).focus();
 };
 
 /* ---------- 啟動 ---------- */
