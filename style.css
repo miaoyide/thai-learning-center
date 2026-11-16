@@ -486,7 +486,7 @@ button.say:not(:first-child) { margin-left:.3em; }
 .smartmeta { flex:none; font-size:.75rem; color:var(--muted); text-align:right; }
 #smartText { box-sizing:border-box; width:100%; }
 #smartWords { box-sizing:border-box; width:100%; }
-#saTopic, #saText { box-sizing:border-box; width:100%; }
+#saTopic, #saText, #saMust { box-sizing:border-box; width:100%; }
 .satwo { display:flex; gap:10px; flex-wrap:wrap; }
 .satwo label { flex:1; min-width:120px; }
 .satwo select { width:100%; margin-top:4px; }

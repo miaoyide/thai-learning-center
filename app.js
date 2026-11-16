@@ -1389,7 +1389,7 @@ const ART_TYPES = [
   ["dialog", "課文／對話"],
 ];
 
-function articlePrompt({ topic, size, type }) {
+function articlePrompt({ topic, size, type, must = "" }) {
   const th = L().roman;
   const n = ART_SIZES.find(([k]) => k === size)?.[1] || 8;
   const w = th ? "泰文" : "英文";
@@ -1449,7 +1449,7 @@ ${lesson}`,
 3. ${specs.grammar}
 4. ${specs.dialog}`;
   return `請針對下面的主題，整理一篇精簡的${w}學習筆記。
-主題：${topic || "（請你自行挑一個實用的生活主題）"}
+主題：${topic || "（請你自行挑一個實用的生活主題）"}${must ? `\n\n以下是我一定要學到的內容：每一項都要有對應的${w}說法（可以放進下面結構裡最合適的位置），不可以因為要精簡而省略；結構裡已經會出現的就不用重複：\n${must}` : ""}
 
 ${structure}
 
@@ -1512,6 +1512,7 @@ enableRichPaste($("saText"), true);
 function openSmartArticle() {
   if (readOnly()) return;
   $("saTopic").value = "";
+  $("saMust").value = "";
   $("saText").value = "";
   $("saType").innerHTML = ART_TYPES.map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
   $("saSize").innerHTML = ART_SIZES.map(([k, n]) => `<option value="${k}">${k}（約 ${n} 項）</option>`).join("");
@@ -1520,7 +1521,8 @@ function openSmartArticle() {
 }
 $("saCancel").onclick = () => $("smartArtDlg").close();
 $("saCopy").onclick = async () => {
-  const prompt = articlePrompt({ topic: $("saTopic").value.trim(), size: $("saSize").value, type: $("saType").value });
+  const must = $("saMust").value.split(/\n/).map((l) => l.trim().replace(/^[-•*]\s*/, "")).filter(Boolean).map((l) => `- ${l}`).join("\n");
+  const prompt = articlePrompt({ topic: $("saTopic").value.trim(), size: $("saSize").value, type: $("saType").value, must });
   try {
     await navigator.clipboard.writeText(prompt);
     $("saCopy").textContent = "已複製 ✓";
