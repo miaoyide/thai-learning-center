@@ -86,6 +86,12 @@ const SAY_RUN = {
 function addSayButtons(html) {
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
+  // 泰文版：只含拉丁字母（含聲調符號）的斜體就是羅馬拼音，標上 class 讓它用拼音色、不傾斜
+  if (lang === "th") {
+    tpl.content.querySelectorAll("em, i").forEach((el) => {
+      if (/[A-Za-z]/.test(el.textContent) && /^[\s\wÀ-ʯ̀-ͯḀ-ỿ'’.,?!()\/-]+$/.test(el.textContent)) el.classList.add("rom");
+    });
+  }
   tpl.content.querySelectorAll(SAY_BLOCKS).forEach((el) => {
     // 這一層自己的文字節點（不含巢狀區塊），依序串成一段字串來找泰文
     const nodes = [];
@@ -528,7 +534,7 @@ function go(p) {
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
   $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
-  $("smartBtn").hidden = p !== "cards";
+  $("smartBtn").hidden = p !== "cards" && p !== "articles";
   $("archiveBtn").hidden = p !== "cards"; // 封存只用於字卡
   $("archiveHint").hidden = p !== "cards";
   $("search").placeholder = searchHint();
@@ -1019,12 +1025,49 @@ turndown.addRule("tableCellNoBreak", {
     return (index === 0 ? "| " : " ") + flat + " |";
   },
 });
-function enableRichPaste(el) {
+// AI（Gemini）網頁複製出來的 HTML 常把「一行一行」的版面用文字裡的換行、或 display:block 的行內元素表現，
+// 轉成 Markdown 時就全黏成一行（例如 **例句****泰文**拼音 中文）。aiReply 模式先把這些換行補成 <br>，再做一次保險修補。
+const INLINE_TAGS = new Set(["SPAN", "B", "STRONG", "I", "EM", "A", "CODE", "U"]);
+function keepAiLineBreaks(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const texts = [];
+  while (walker.nextNode()) texts.push(walker.currentNode);
+  for (const t of texts) {
+    if (t.parentElement.closest("pre, code") || !t.nodeValue.includes("\n")) continue;
+    const parts = t.nodeValue.split(/[ \t]*\n[ \t\n]*/);
+    const frag = doc.createDocumentFragment();
+    parts.forEach((p, i) => { if (i) frag.append(doc.createElement("br")); if (p) frag.append(p); });
+    t.replaceWith(frag);
+  }
+  for (const el of doc.body.querySelectorAll("[style]")) {
+    if (INLINE_TAGS.has(el.tagName) && /display:\s*(block|flex|list-item)/i.test(el.getAttribute("style")) && el.nextSibling?.nodeName !== "BR") {
+      el.after(doc.createElement("br"));
+    }
+  }
+  return doc.body.innerHTML;
+}
+// 保險：相鄰的兩段粗體（****）、粗體後面緊接斜體拼音（**_），一定是不同行
+// 另外，上一行是粗體泰文、這一行開頭是「_拼音_ 中文」時，拼音與中文翻譯也是不同行
+const fixFlatMarkdown = (md) => {
+  // 「例句」標籤如果接在意思說明的句尾（……旅行前。**例句**），要另起一段
+  const lines = md.replace(/\*\*\*\*/g, "**\n**").replace(/(\*\*)(?=_)/g, "$1\n").replace(/([^\n])[ \t]*(\*\*例句\*\*)/g, "$1\n\n$2")
+    .replace(/([。！？])[ \t]*(?=\*\*[^*\n]*[฀-๿]{6})/g, "$1\n\n") // 句號後直接接粗體泰文例句（沒有標籤）時也另起一段
+    .split("\n");
+  return lines.flatMap((line, i) => {
+    const m = line.match(/^(\s*_[^_\n]+_)[ \t]+(?=[㐀-鿿])/);
+    return m && i && lines[i - 1].includes("**") && /[฀-๿]/.test(lines[i - 1]) ? [m[1], line.slice(m[0].length)] : [line];
+  }).join("\n");
+};
+
+function enableRichPaste(el, aiReply = false) {
   el.addEventListener("paste", (e) => {
     const html = e.clipboardData.getData("text/html");
     if (!html) return; // 純文字照常貼上
     e.preventDefault();
-    el.setRangeText(turndown.turndown(html).trim(), el.selectionStart, el.selectionEnd, "end");
+    let md = turndown.turndown(aiReply ? keepAiLineBreaks(html) : html).trim();
+    if (aiReply) md = fixFlatMarkdown(md);
+    el.setRangeText(md, el.selectionStart, el.selectionEnd, "end");
     el.dispatchEvent(new Event("input", { bubbles: true })); // setRangeText 不會自動觸發 input，要讓監聽的功能（如智慧貼上預覽）知道內容變了
   });
 }
@@ -1286,8 +1329,8 @@ $("smartPreview").addEventListener("change", (e) => {
   e.target.checked ? smartOff.delete(i) : smartOff.add(i);
   renderSmart();
 });
-enableRichPaste($("smartText"));
-$("smartBtn").onclick = () => {
+enableRichPaste($("smartText"), true);
+const openSmartCards = () => {
   if (readOnly()) return;
   $("smartText").value = "";
   $("smartWords").value = "";
@@ -1331,6 +1374,137 @@ $("smartForm").onsubmit = async (e) => {
     btn.disabled = false;
   }
 };
+
+/* ---------- 文章的智慧貼上：輸入主題 → 生成提示詞 → 貼回 AI 的回覆，自動拆出標題／副標題／內文 ---------- */
+// 參考既有文章的寫法：課文（逐句拆解）、情境句型清單（計程車、結帳）、速查表＋逐項解說（口頭禪）。
+// 結構讓 AI 依主題性質自己選，統一的是：精簡、每個外語詞句獨立一行、附拼音／中文、不寫開場白。
+const ART_SIZES = [["精簡", 8], ["標準", 15], ["完整", 25]];
+
+function articlePrompt({ topic, size }) {
+  const th = L().roman;
+  const n = ART_SIZES.find(([k]) => k === size)?.[1] || 8;
+  const w = th ? "泰文" : "英文";
+  // 每個外語詞句固定成「粗體原文＋底下兩行（拼音、中文）」，不要「拼音：」「中文：」這類欄位標籤
+  const item = th
+    ? `-   **泰文詞或句子**
+    -   _羅馬拼音_
+    -   中文意思`
+    : `-   **英文詞或句子**
+    -   中文意思`;
+  const table = th ? "泰文｜拼音｜中文｜使用情境" : "英文｜中文｜使用情境";
+  const lesson = th
+    ? `### 第 1 句
+-   **A: 泰文句子**
+    -   _羅馬拼音_
+    -   中文翻譯
+    -   **泰文詞** (_拼音_)：中文意思（每句只列 2–4 個值得學的詞，一詞一行）`
+    : `### 第 1 句
+-   **A: 英文句子**
+    -   中文翻譯
+    -   **英文詞**：中文意思（每句只列 2–4 個值得學的詞，一詞一行）`;
+  return `請針對下面的主題，整理一篇精簡的${w}學習筆記。
+主題：${topic || "（請你自行挑一個實用的生活主題）"}
+規模：約 ${n} 個詞句項目（對話型則約 ${Math.max(4, Math.round(n / 2))} 句）。
+
+結構請依主題性質從下面三種挑「一種」，不要混用：
+1. 情境型主題（例如搭計程車、結帳、點餐）：用「### 1. 情境名稱」分成幾組，每組列出實用的詞與句型，每項照這個格式：
+${item}
+2. 詞彙或語氣型主題（例如情緒形容詞、口頭禪、量詞）：先給一張速查表（${table}），再用「### 分類」分組、${th ? "「#### N. **泰文詞** (_拼音_)」逐項簡述，拼音放在泰文旁邊的括號裡、不要另起一行" : "「#### N. **英文詞**」逐項簡述"}：用一行文字寫意思與情境（這一行不要夾外語例句）；例句另起一段（與意思說明之間空一行），不要加「例句」標籤或分隔線，直接寫${th ? "三行（不要用清單符號）：粗體泰文句子、斜體拼音、中文翻譯" : "兩行（不要用清單符號）：粗體英文句子、中文翻譯"}，最多一則。
+3. 對話型（主題本身就是一段對話、課文，或情境適合用對話呈現）：A、B 兩人的短對話，每句這樣拆：
+${lesson}
+
+共同規則：
+- 我已經不是初學者：省略太基礎的詞、發音說明、基本禮貌與稱呼、文法長篇大論。
+- 內容要自然、貼近母語者平常的說法，不要翻譯腔；寧可少而實用，不要為了湊數量硬寫。
+- 凡是${w}一律用粗體，且每個詞或句子獨立一行（或表格的獨立一格），不要把多個${w}擠在同一行，也不要把${w}例句接在中文說明的句子後面。
+- 不要使用「拼音：」「中文：」「英文：」「說明：」這類欄位標籤，只寫內容本身。
+- 不要開場白、結尾、總結。
+
+請「嚴格照下面格式」輸出，標題下面直接接內容：
+
+標題: （簡短的中文標題，例如「計程車相關」）
+副標題: （英文副標題，可留空）
+
+（內容）`;
+}
+
+const ART_HEAD = /^[\s>*•-]*\**\s*(標題|副標題|英文副標題|title|subtitle)\s*\**\s*[:：]\s*\**\s*(.*)$/i;
+const ART_BODY_HEAD = /^#{1,6}\s*\**\s*(內文|正文|文章|body|article|text)\s*\**\s*[:：]?\s*$/i;
+function parseArticle(text) {
+  let lines = text.replace(/\r/g, "").split("\n");
+  // 欄位被壓成同一行時（網頁複製常見）在「副標題:」前拆開
+  lines = lines.flatMap((l) => (ART_HEAD.test(l) ? l.split(/\s+(?=\**(?:副標題|英文副標題|subtitle)\**\s*[:：])/i) : [l]));
+  let title = "", subtitle = "";
+  let i = 0;
+  let found = false;
+  for (; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const m = lines[i].match(ART_HEAD);
+    if (m) {
+      found = true;
+      const v = m[2].replace(/\s*\*+\s*$/, "").trim();
+      if (/^(副標題|英文副標題|subtitle)$/i.test(m[1])) subtitle = v; else title = v;
+      continue;
+    }
+    if (found) break;
+  }
+  const body = lines.slice(i);
+  while (body.length && !body[0].trim()) body.shift();
+  if (body.length && ART_BODY_HEAD.test(body[0].trim())) body.shift();
+  return { title, subtitle, body: body.join("\n").trim() };
+}
+
+let artParsed = { title: "", subtitle: "", body: "" };
+function renderSmartArt() {
+  artParsed = parseArticle($("saText").value);
+  const { title, subtitle, body } = artParsed;
+  $("saPreview").innerHTML = $("saText").value.trim()
+    ? `<div class="smartrow"><span class="smartmain"><b>${esc(title) || "（找不到標題）"}</b>
+        <span class="smartmeaning">${esc(subtitle)}</span></span>
+        <span class="smartmeta">內文 ${body.length} 字</span></div>`
+    : "";
+  $("saSave").disabled = !title || !body;
+}
+$("saText").addEventListener("input", renderSmartArt);
+enableRichPaste($("saText"), true);
+
+function openSmartArticle() {
+  if (readOnly()) return;
+  $("saTopic").value = "";
+  $("saText").value = "";
+  $("saSize").innerHTML = ART_SIZES.map(([k, n]) => `<option value="${k}">${k}（約 ${n} 項）</option>`).join("");
+  renderSmartArt();
+  $("smartArtDlg").showModal();
+}
+$("saCancel").onclick = () => $("smartArtDlg").close();
+$("saCopy").onclick = async () => {
+  const prompt = articlePrompt({ topic: $("saTopic").value.trim(), size: $("saSize").value });
+  try {
+    await navigator.clipboard.writeText(prompt);
+    $("saCopy").textContent = "已複製 ✓";
+  } catch (e) {
+    $("saText").value = prompt; // 剪貼簿不可用時放進輸入框讓使用者自己複製
+    $("saText").select();
+  }
+  setTimeout(() => ($("saCopy").textContent = "生成提示詞並複製"), 2000);
+};
+$("saForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const { title, subtitle, body } = artParsed;
+  if (!title || !body) return;
+  const btn = $("saSave");
+  btn.disabled = true;
+  try {
+    await addDoc(collection(db, "articles"), { lang, title, subtitle, body, tags: [], createdAt: serverTimestamp() });
+    $("smartArtDlg").close();
+  } catch (err) {
+    alert("新增失敗：" + err.message);
+  } finally {
+    btn.disabled = !title || !body;
+  }
+};
+
+$("smartBtn").onclick = () => (page === "articles" ? openSmartArticle() : openSmartCards());
 
 /* ---------- 影片 ---------- */
 function openVideo(v) {

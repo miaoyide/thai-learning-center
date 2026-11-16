@@ -21,7 +21,7 @@ dialog input, dialog textarea { margin-top:4px; color:var(--fg); }
 
 /* 說明區：仿 Gemini 回覆排版 */
 .detail { cursor:auto; background:var(--detail-bg); border-radius:12px; padding:16px 18px; margin-top:12px; overflow-x:auto;
-  font-size:1rem; line-height:1.3; letter-spacing:.01em; }
+  font-size:1rem; line-height:1.6; letter-spacing:.01em; }
 .detail > :first-child { margin-top:0; }
 .detail > :last-child { margin-bottom:0; }
 .detail p { margin:0 0 .5em; }
@@ -486,3 +486,15 @@ button.say:not(:first-child) { margin-left:.3em; }
 .smartmeta { flex:none; font-size:.75rem; color:var(--muted); text-align:right; }
 #smartText { box-sizing:border-box; width:100%; }
 #smartWords { box-sizing:border-box; width:100%; }
+#saTopic, #saText { box-sizing:border-box; width:100%; }
+.satwo { display:flex; gap:10px; flex-wrap:wrap; }
+.satwo label { flex:1; min-width:120px; }
+.satwo select { width:100%; margin-top:4px; }
+#saSize { width:100%; margin-top:4px; }
+
+/* 標題裡括號中的羅馬拼音（#### 1. 泰文 (_拼音_)）：緊貼泰文旁，灰色、不加粗（字級同標題） */
+.detail :is(h1, h2, h3, h4, h5, h6) em { color:var(--muted); font-size:1em; font-weight:400; }
+
+/* 說明／文章裡的羅馬拼音：不傾斜、用拼音色、略小（參考 ThaiPod101 的排版）；標題裡的拼音維持灰色、同字級 */
+.detail em.rom { font-style:normal; color:var(--roman); font-size:.92em; }
+.detail :is(h1, h2, h3, h4, h5, h6) em.rom { color:var(--muted); font-size:1em; }

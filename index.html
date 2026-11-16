@@ -48,7 +48,7 @@
     <div class="toolbar">
       <input id="search">
       <button id="importBtn" title="一次貼上多筆資料">匯入</button>
-      <button id="smartBtn" title="貼上 AI 的完整回覆，自動拆成欄位">智慧貼上</button>
+      <button id="smartBtn" title="輸入單字或主題生成提示詞，並把 AI 的完整回覆自動拆成欄位">智慧貼上</button>
       <button id="addBtn" title="快捷鍵：Alt+N">＋ 新增</button>
       <div class="keytip" id="keyTip">
         <button type="button" id="keyTipBtn" class="keytipbtn" aria-label="快捷鍵說明" aria-expanded="false">?</button>
@@ -179,6 +179,26 @@
       <span class="hint" id="smartCount"></span>
       <button type="button" id="smartCancel">取消</button>
       <button type="submit" id="smartSave">全部新增</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="smartArtDlg">
+  <form id="saForm" method="dialog">
+    <h2>智慧貼上（文章）</h2>
+    <p class="hint">① 輸入主題、選規模，按「生成提示詞並複製」，貼給 AI　② 把 AI 的整段回覆貼在下面，會自動拆出標題、副標題與內文。</p>
+    <label>主題
+      <input id="saTopic" placeholder="例如：常見的情緒形容詞、在夜市點餐">
+    </label>
+    <label>規模 <select id="saSize"></select></label>
+    <div class="row"><button type="button" id="saCopy">生成提示詞並複製</button></div>
+    <label>AI 的回覆
+      <textarea id="saText" rows="8"></textarea>
+    </label>
+    <div id="saPreview"></div>
+    <div class="row">
+      <button type="button" id="saCancel">取消</button>
+      <button type="submit" id="saSave" disabled>新增文章</button>
     </div>
   </form>
 </dialog>
