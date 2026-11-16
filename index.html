@@ -166,8 +166,11 @@
 <dialog id="smartDlg">
   <form id="smartForm" method="dialog">
     <h2>智慧貼上</h2>
-    <p class="hint" id="smartHint">把 AI 的整段回覆貼進來，會自動拆成欄位。先按「複製提示詞」貼給 AI，它就會照固定格式回覆。</p>
-    <div class="row"><button type="button" id="smartCopy">複製提示詞</button></div>
+    <p class="hint" id="smartHint">① 輸入要查的單字，按「生成提示詞並複製」，貼給 AI　② 把 AI 的整段回覆貼在下面，會自動拆成欄位。</p>
+    <label><span id="smartWordsLbl">要查的泰文</span>（一行一個）
+      <textarea id="smartWords" rows="3"></textarea>
+    </label>
+    <div class="row"><button type="button" id="smartCopy">生成提示詞並複製</button></div>
     <label>AI 的回覆
       <textarea id="smartText" rows="9"></textarea>
     </label>

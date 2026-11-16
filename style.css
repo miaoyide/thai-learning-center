@@ -485,3 +485,4 @@ button.say:not(:first-child) { margin-left:.3em; }
 .smartmeaning { display:block; color:var(--muted); font-size:.85rem; }
 .smartmeta { flex:none; font-size:.75rem; color:var(--muted); text-align:right; }
 #smartText { box-sizing:border-box; width:100%; }
+#smartWords { box-sizing:border-box; width:100%; }

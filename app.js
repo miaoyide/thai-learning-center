@@ -1217,7 +1217,12 @@ function parseSmart(text) {
   return { rows, skipped };
 }
 
-const smartPrompt = () => L().roman
+// words：使用者輸入的單字（一行一個），會附在提示詞最後面
+const smartPrompt = (words = "") => (smartTemplate() + (words ? `
+
+以下是我要查的${L().term}（一行一個）：
+${words}` : ""));
+const smartTemplate = () => L().roman
   ? `我只會給你泰文單字或句子（可能一次多個，一行一個）。請你補上泰國人實際的羅馬拼音（含聲調符號）與英文意思，說明用繁體中文，並「嚴格照下面格式」輸出，不要有開場白或結尾；有多個項目時，每個項目之間用單獨一行 --- 隔開。
 
 泰文: （原文）
@@ -1226,7 +1231,8 @@ const smartPrompt = () => L().roman
 類型: 單字 或 句子
 
 ## 詳細說明
-我已經不是初學者：請不要寫發音說明（我另有語音可聽）、基本禮貌與稱呼（例如 ครับ／ค่ะ、พี่、น้อง 這類）、基礎文法常識，把篇幅留給上面這些內容。
+我已經不是初學者：請不要寫發音說明（我另有語音可聽）、基本禮貌與稱呼（例如 ครับ／ค่ะ、พี่、น้อง 這類）、基礎文法常識，把篇幅留給下面這些內容。
+詳細程度請你自己判斷：多義、用法多、會出現在很多情境的詞（例如 กิน）要完整介紹下面各部分；意思單一、用法單純的詞（例如 แว่นกันแดด）只要簡短寫，保留真正有用的 1–2 個部分（例如詞性、一兩個例句、幾個相關詞），其餘部分整段省略，不要為了湊內容而硬寫。
 請用 Markdown 寫，涵蓋下面幾個部分（沒有的部分可以省略）。凡是泰文，一律附羅馬拼音與中文，而且每個泰文詞或句子獨立一行或獨立一格（用清單或表格），不要把多個泰文詞擠在同一句中文裡。
 ### 詞性與基本用法
 ### 常見搭配與句型
@@ -1243,7 +1249,8 @@ const smartPrompt = () => L().roman
 類型: 單字 或 句子
 
 ## 詳細說明
-我已經不是初學者：請不要寫發音說明（我另有語音可聽）、基礎文法常識與一般禮貌用語，把篇幅留給上面這些內容。
+我已經不是初學者：請不要寫發音說明（我另有語音可聽）、基礎文法常識與一般禮貌用語，把篇幅留給下面這些內容。
+詳細程度請你自己判斷：多義、用法多、會出現在很多情境的詞（例如 take、get）要完整介紹下面各部分；意思單一、用法單純的詞（例如 sunglasses）只要簡短寫，保留真正有用的 1–2 個部分（例如詞性、一兩個例句、幾個相關詞），其餘部分整段省略，不要為了湊內容而硬寫。
 請用 Markdown 寫，涵蓋下面幾個部分（沒有的部分可以省略）。凡是英文，一律附中文，而且每個英文詞或句子獨立一行或獨立一格（用清單或表格）。
 ### 詞性與變化
 ### 常見搭配與句型
@@ -1283,20 +1290,23 @@ enableRichPaste($("smartText"));
 $("smartBtn").onclick = () => {
   if (readOnly()) return;
   $("smartText").value = "";
+  $("smartWords").value = "";
+  $("smartWordsLbl").textContent = `要查的${L().term}`;
   smartOff.clear();
   renderSmart();
   $("smartDlg").showModal();
 };
 $("smartCancel").onclick = () => $("smartDlg").close();
 $("smartCopy").onclick = async () => {
+  const words = $("smartWords").value.split(/\n/).map((w) => w.trim()).filter(Boolean).join("\n");
   try {
-    await navigator.clipboard.writeText(smartPrompt());
+    await navigator.clipboard.writeText(smartPrompt(words));
     $("smartCopy").textContent = "已複製 ✓";
   } catch (e) {
-    $("smartText").value = smartPrompt(); // 剪貼簿不可用時放進輸入框讓使用者自己複製
+    $("smartText").value = smartPrompt(words); // 剪貼簿不可用時放進輸入框讓使用者自己複製
     $("smartText").select();
   }
-  setTimeout(() => ($("smartCopy").textContent = "複製提示詞"), 2000);
+  setTimeout(() => ($("smartCopy").textContent = "生成提示詞並複製"), 2000);
 };
 $("smartForm").onsubmit = async (e) => {
   e.preventDefault();
