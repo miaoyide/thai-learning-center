@@ -528,6 +528,7 @@ function go(p) {
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.page === p));
   $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
+  $("smartBtn").hidden = p !== "cards";
   $("archiveBtn").hidden = p !== "cards"; // 封存只用於字卡
   $("archiveHint").hidden = p !== "cards";
   $("search").placeholder = searchHint();
@@ -1024,6 +1025,7 @@ function enableRichPaste(el) {
     if (!html) return; // 純文字照常貼上
     e.preventDefault();
     el.setRangeText(turndown.turndown(html).trim(), el.selectionStart, el.selectionEnd, "end");
+    el.dispatchEvent(new Event("input", { bubbles: true })); // setRangeText 不會自動觸發 input，要讓監聽的功能（如智慧貼上預覽）知道內容變了
   });
 }
 enableRichPaste($("fDetail"));
@@ -1127,6 +1129,194 @@ $("importForm").onsubmit = async (e) => {
     $("importDlg").close();
   } catch (err) {
     alert("匯入失敗：" + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+/* ---------- 智慧貼上：把 AI 的整段回覆拆成欄位，預覽後一次新增 ---------- */
+// 回覆格式（提示詞會要求 AI 照這個格式）：每張卡開頭是「欄位名: 內容」的幾行，後面是詳細說明（Markdown）；多張卡之間用 --- 隔開。
+const smartLabels = () => ({
+  ...(L().roman
+    ? {
+      thai: ["泰文", "泰語", "泰语", "thai", "單字", "詞彙", "詞語"],
+      roman: ["羅馬拼音", "拼音", "羅馬", "romanization", "romanisation", "roman"],
+      english: ["英文", "english", "意思", "翻譯", "meaning", "translation", "中文"],
+    }
+    : {
+      thai: ["英文", "english", "單字", "詞彙", "word", "term"],
+      roman: [],
+      english: ["中文", "意思", "翻譯", "meaning", "translation"],
+    }),
+  type: ["類型", "分類", "type"],
+  tags: ["標籤", "tags", "tag"],
+  note: ["備註", "note", "notes"],
+});
+const SMART_HEAD = /^[\s>*•-]*\**\s*([^:：*\n]{1,24}?)\s*\**\s*[:：]\s*\**\s*(.*)$/;
+const SMART_SEP = /^\s*(?:-{3,}|_{3,}|\*{3,}|(?:\*\s+){2,}\*)\s*$/; // 從網頁複製時分隔線會變成 * * *
+const SMART_DETAIL_HEAD = /^#{1,6}\s*\**\s*(詳細說明|详细说明|說明|details?|explanation)\s*\**\s*[:：]?\s*$/i;
+
+function parseSmart(text) {
+  const lookup = new Map();
+  for (const [field, names] of Object.entries(smartLabels())) for (const n of names) lookup.set(n.toLowerCase(), field);
+  const head = (line) => {
+    const m = line.match(SMART_HEAD);
+    const field = m && lookup.get(m[1].trim().toLowerCase());
+    return field ? [field, m[2].replace(/\s*\*+\s*$/, "").trim()] : null;
+  };
+  // 從網頁複製時欄位之間的換行常被吃掉，變成「泰文: x 拼音: y 英文: z」擠在同一行；在每個欄位名稱前面把它們拆開
+  const names = [...lookup.keys()].map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const SPLIT = new RegExp(`\\s+(?=\\**(?:${names})\\**\\s*[:：])`, "i");
+  // 依分隔線切成一張一張；只有分隔線後面緊接著「泰文／英文」欄位才算新卡，說明裡的分隔線不會被誤切
+  const lines = text.replace(/\r/g, "").split("\n");
+  const chunks = [];
+  let cur = [];
+  let fence = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) fence = !fence;
+    if (!fence && SMART_SEP.test(lines[i])) {
+      let k = i + 1;
+      while (k < lines.length && !lines[k].trim()) k++;
+      if (k < lines.length && head(lines[k])?.[0] === "thai") { chunks.push(cur); cur = []; continue; }
+    }
+    cur.push(lines[i]);
+  }
+  chunks.push(cur);
+
+  const rows = [];
+  let skipped = 0;
+  for (const ch of chunks) {
+    if (!ch.some((l) => l.trim())) continue;
+    const card = { thai: "", roman: "", english: "", type: "", tags: "", note: "" };
+    let found = false;
+    let i = 0;
+    for (; i < ch.length; i++) {
+      if (!ch[i].trim()) continue;
+      if (head(ch[i])) { const parts = ch[i].split(SPLIT); if (parts.length > 1) ch.splice(i, 1, ...parts); }
+      const h = head(ch[i]);
+      if (h) { found = true; card[h[0]] = h[1]; continue; }
+      if (found) break; // 欄位區結束，後面都是詳細說明
+      // 還沒遇到欄位前的開場白就略過
+    }
+    const body = ch.slice(i);
+    while (body.length && !body[0].trim()) body.shift();
+    if (body.length && SMART_DETAIL_HEAD.test(body[0].trim())) body.shift();
+    card.detail = body.join("\n").trim();
+    card.thai = termClean(card.thai);
+    if (!card.thai) { skipped++; continue; }
+    card.tags = card.tags ? card.tags.split(/[,，、]/).map((t) => t.trim().replace(/^#/, "")).filter(Boolean) : [];
+    if (!L().roman) card.roman = "";
+    if (/句|sentence/i.test(card.type)) card.type = "sentence";
+    else if (/單字|词|字|word/i.test(card.type)) card.type = "word";
+    else { // AI 沒給類型就用長度猜：詞組（英文版 3 個字以上、泰文版英文意思 4 個字以上）視為句子
+      const words = (L().roman ? card.english : card.thai).trim().split(/\s+/).filter(Boolean).length;
+      card.type = words >= (L().roman ? 4 : 3) ? "sentence" : "word";
+    }
+    rows.push(card);
+  }
+  return { rows, skipped };
+}
+
+const smartPrompt = () => L().roman
+  ? `我只會給你泰文單字或句子（可能一次多個，一行一個）。請你補上泰國人實際的羅馬拼音（含聲調符號）與英文意思，說明用繁體中文，並「嚴格照下面格式」輸出，不要有開場白或結尾；有多個項目時，每個項目之間用單獨一行 --- 隔開。
+
+泰文: （原文）
+拼音: （你補上的羅馬拼音）
+英文: （你補上的英文意思）
+類型: 單字 或 句子
+
+## 詳細說明
+我已經不是初學者：請不要寫發音說明（我另有語音可聽）、基本禮貌與稱呼（例如 ครับ／ค่ะ、พี่、น้อง 這類）、基礎文法常識，把篇幅留給上面這些內容。
+請用 Markdown 寫，涵蓋下面幾個部分（沒有的部分可以省略）。凡是泰文，一律附羅馬拼音與中文，而且每個泰文詞或句子獨立一行或獨立一格（用清單或表格），不要把多個泰文詞擠在同一句中文裡。
+### 詞性與基本用法
+### 常見搭配與句型
+### 這個詞的情境與相關詞彙
+先判斷這個詞最常出現在哪 1–2 個生活情境（例如按摩、點餐、問路、看病），再整理在這個情境裡「會一起用到」的詞，用表格列出（泰文｜拼音｜中文），並盡量涵蓋：感受與程度（舒服、痛、剛好、太用力）、常用動作與要求（輕一點、重一點、這裡、換邊）、相關的人事物與地點、對方可能會問的話與自己的回答。
+### 情境短對話
+2–3 組，每組 2–4 句，泰文＋拼音＋中文。
+### 容易混淆的詞
+近義詞、反義詞，說明差別。`
+  : `我只會給你英文單字或句子（可能一次多個，一行一個）。請你補上中文意思，說明用繁體中文，並「嚴格照下面格式」輸出，不要有開場白或結尾；有多個項目時，每個項目之間用單獨一行 --- 隔開。
+
+英文: （原文）
+中文: （中文意思）
+類型: 單字 或 句子
+
+## 詳細說明
+我已經不是初學者：請不要寫發音說明（我另有語音可聽）、基礎文法常識與一般禮貌用語，把篇幅留給上面這些內容。
+請用 Markdown 寫，涵蓋下面幾個部分（沒有的部分可以省略）。凡是英文，一律附中文，而且每個英文詞或句子獨立一行或獨立一格（用清單或表格）。
+### 詞性與變化
+### 常見搭配與句型
+### 這個詞的情境與相關詞彙
+先判斷這個詞最常出現在哪 1–2 個生活或工作情境，再整理在這個情境裡「會一起用到」的詞，用表格列出（英文｜中文），並盡量涵蓋：感受與程度、常用動作與要求、相關的人事物與地點、對方可能會問的話與自己的回答。
+### 情境短對話
+2–3 組，每組 2–4 句，英文＋中文。
+### 容易混淆的詞
+近義詞、反義詞，說明差別。`;
+
+let smartRows = [];
+const smartOff = new Set(); // 預覽裡取消勾選的列
+function renderSmart() {
+  const { rows, skipped } = parseSmart($("smartText").value);
+  smartRows = rows;
+  for (const i of [...smartOff]) if (i >= rows.length) smartOff.delete(i);
+  $("smartPreview").innerHTML = rows.map((r, i) => `
+    <label class="smartrow">
+      <input type="checkbox" data-i="${i}" ${smartOff.has(i) ? "" : "checked"}>
+      <span class="smartmain"><b>${esc(r.thai)}</b>${r.roman ? ` <span class="roman">${esc(r.roman)}</span>` : ""}
+        <span class="smartmeaning">${esc(r.english)}</span></span>
+      <span class="smartmeta">${r.type === "sentence" ? "句子" : "單字"}${r.tags.length ? ` · ${esc(r.tags.join("、"))}` : ""}${r.detail ? " · 有說明" : ""}${r.note ? " · 有備註" : ""}</span>
+    </label>`).join("");
+  const n = rows.length - smartOff.size;
+  $("smartCount").textContent = $("smartText").value.trim()
+    ? `解析到 ${rows.length} 筆，將新增 ${n} 筆${skipped ? `（${skipped} 段找不到${L().term}欄位，已略過）` : ""}`
+    : "";
+  $("smartSave").disabled = n === 0;
+}
+$("smartText").addEventListener("input", () => { smartOff.clear(); renderSmart(); });
+$("smartPreview").addEventListener("change", (e) => {
+  const i = +e.target.dataset.i;
+  e.target.checked ? smartOff.delete(i) : smartOff.add(i);
+  renderSmart();
+});
+enableRichPaste($("smartText"));
+$("smartBtn").onclick = () => {
+  if (readOnly()) return;
+  $("smartText").value = "";
+  smartOff.clear();
+  renderSmart();
+  $("smartDlg").showModal();
+};
+$("smartCancel").onclick = () => $("smartDlg").close();
+$("smartCopy").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(smartPrompt());
+    $("smartCopy").textContent = "已複製 ✓";
+  } catch (e) {
+    $("smartText").value = smartPrompt(); // 剪貼簿不可用時放進輸入框讓使用者自己複製
+    $("smartText").select();
+  }
+  setTimeout(() => ($("smartCopy").textContent = "複製提示詞"), 2000);
+};
+$("smartForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const rows = smartRows.filter((_, i) => !smartOff.has(i));
+  if (!rows.length) return;
+  if (rows.length > 400) return alert("一次最多新增 400 筆，請分批");
+  const btn = $("smartSave");
+  btn.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    const base = Date.now();
+    rows.forEach((r, i) => batch.set(doc(collection(db, "cards")), {
+      lang, type: r.type, thai: r.thai, roman: r.roman, english: r.english, detail: r.detail, note: r.note,
+      tags: r.tags, archived: false, weak: false,
+      createdAt: Timestamp.fromMillis(base - i), // 依序遞減，列表就維持貼上的順序
+    }));
+    await batch.commit();
+    $("smartDlg").close();
+  } catch (err) {
+    alert("新增失敗：" + err.message);
   } finally {
     btn.disabled = false;
   }

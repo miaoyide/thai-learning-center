@@ -211,7 +211,7 @@ button.say:hover { opacity:.7; }
 .loginbox button { padding:8px 18px; }
 .badge { font-size:.75rem; color:var(--muted); border:1px solid var(--border); border-radius:10px; padding:2px 8px; white-space:nowrap; }
 #authBox { display:flex; align-items:center; gap:8px; }
-.guest #addBtn, .guest #editBtn, .guest #delBtn, .guest #importBtn,
+.guest #addBtn, .guest #editBtn, .guest #delBtn, .guest #importBtn, .guest #smartBtn,
 .guest #selAll, .guest input.sel,
 .guest #weakTab, .guest [data-go="weak"], .guest [data-act="quiz"], .guest [data-act="export"],
 .guest #aEdit, .guest #selAdd, .guest .cue [data-act="add"],
@@ -476,3 +476,12 @@ button.say:not(:first-child) { margin-left:.3em; }
 .langopts button span { color:var(--muted); font-size:.85rem; }
 .langopts button.on { border-color:var(--accent); }
 .lang-en .thaionly { display:none !important; }
+
+/* 智慧貼上預覽 */
+#smartPreview { max-height:34vh; overflow:auto; margin:8px 0; }
+.smartrow { display:flex !important; align-items:center; gap:10px; margin:0 !important; padding:6px 4px; border-bottom:1px solid var(--border); color:var(--fg) !important; }
+.smartrow input { flex:none; margin:0 !important; }
+.smartmain { flex:1; min-width:0; }
+.smartmeaning { display:block; color:var(--muted); font-size:.85rem; }
+.smartmeta { flex:none; font-size:.75rem; color:var(--muted); text-align:right; }
+#smartText { box-sizing:border-box; width:100%; }

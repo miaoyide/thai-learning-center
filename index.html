@@ -48,6 +48,7 @@
     <div class="toolbar">
       <input id="search">
       <button id="importBtn" title="一次貼上多筆資料">匯入</button>
+      <button id="smartBtn" title="貼上 AI 的完整回覆，自動拆成欄位">智慧貼上</button>
       <button id="addBtn" title="快捷鍵：Alt+N">＋ 新增</button>
       <div class="keytip" id="keyTip">
         <button type="button" id="keyTipBtn" class="keytipbtn" aria-label="快捷鍵說明" aria-expanded="false">?</button>
@@ -158,6 +159,23 @@
       <span class="hint" id="importCount"></span>
       <button type="button" id="importCancel">取消</button>
       <button type="submit">匯入</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="smartDlg">
+  <form id="smartForm" method="dialog">
+    <h2>智慧貼上</h2>
+    <p class="hint" id="smartHint">把 AI 的整段回覆貼進來，會自動拆成欄位。先按「複製提示詞」貼給 AI，它就會照固定格式回覆。</p>
+    <div class="row"><button type="button" id="smartCopy">複製提示詞</button></div>
+    <label>AI 的回覆
+      <textarea id="smartText" rows="9"></textarea>
+    </label>
+    <div id="smartPreview"></div>
+    <div class="row">
+      <span class="hint" id="smartCount"></span>
+      <button type="button" id="smartCancel">取消</button>
+      <button type="submit" id="smartSave">全部新增</button>
     </div>
   </form>
 </dialog>
