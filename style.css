@@ -490,7 +490,7 @@ button.say:not(:first-child) { margin-left:.3em; }
 .satwo { display:flex; gap:10px; flex-wrap:wrap; }
 .satwo label { flex:1; min-width:120px; }
 .satwo select { width:100%; margin-top:4px; }
-#saSize { width:100%; margin-top:4px; }
+#saType, #saSize { width:100%; margin-top:4px; }
 
 /* 標題裡括號中的羅馬拼音（#### 1. 泰文 (_拼音_)）：緊貼泰文旁，灰色、不加粗（字級同標題） */
 .detail :is(h1, h2, h3, h4, h5, h6) em { color:var(--muted); font-size:1em; font-weight:400; }
