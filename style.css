@@ -88,6 +88,22 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .cues { border-top:1px solid var(--border); }
 .cue { display:grid; grid-template-columns:3.2em minmax(0,1fr) auto; gap:4px 12px; align-items:start; padding:10px 15px; border-bottom:1px solid var(--border); cursor:pointer; scroll-margin-top:calc(min(56.25vw, 488px) + 70px); }
 .cue:hover { background:var(--hover); }
+/* 本集重點：單字與常用句型 */
+.vhl { margin:4px 0 12px; border:1px solid var(--border); border-radius:10px; }
+.vhl > summary { cursor:pointer; padding:10px 15px; font-weight:600; }
+.hlbody { padding:0 15px 12px; }
+.hlbody h3 { margin:10px 0 4px; font-size:.9rem; font-weight:600; color:var(--muted); }
+.hlbody h3 small { font-weight:400; }
+.hlwords { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:0 16px; }
+.hl { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:start; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+.hl:hover { background:var(--hover); }
+.hl .thai { font-size:1.1rem; }
+.hl :is(.roman, .english) { font-size:.9rem; }
+.hlnote { margin-top:2px; font-size:.85rem; color:var(--muted); }
+.hlex { margin-top:8px; padding-left:12px; border-left:3px solid var(--border); display:grid; gap:8px; }
+.hlex .thai { font-size:1rem; }
+.hlbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
+.hlmsg { margin:0; font-size:.85rem; color:var(--muted); }
 .cue.on { background:var(--detail-bg); box-shadow:inset 3px 0 0 var(--accent); }
 .ctime { color:var(--muted); font-size:.8rem; padding-top:.45em; font-variant-numeric:tabular-nums; }
 .cbtns { display:flex; gap:2px; }
@@ -138,6 +154,11 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 
 /* 批次匯入 */
 .row .hint { margin:0 auto 0 0; align-self:center; }
+.aigen { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0 4px; }
+.aigen .hint, .keybox .hint { margin:0; font-size:.85rem; color:var(--muted); white-space:pre-line; }
+.keybox { margin:4px 0 10px; font-size:.9rem; color:var(--muted); }
+.keybox summary { cursor:pointer; width:fit-content; }
+.keybox a { color:var(--accent); }
 .hint code { background:var(--code-bg); padding:.1em .4em; border-radius:4px; }
 
 /* 導覽列與頁面 */

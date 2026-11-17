@@ -211,6 +211,18 @@
   <form id="vform" method="dialog">
     <h2 id="vdlgTitle">新增影片</h2>
     <label>YouTube 連結 <input id="vUrl" required placeholder="https://www.youtube.com/watch?v=..."></label>
+    <div class="aigen">
+      <button type="button" id="vGen">自動生成逐字稿</button>
+      <span id="vGenMsg" class="hint" role="status"></span>
+    </div>
+    <details id="vKeyBox" class="keybox">
+      <summary>Gemini 金鑰設定</summary>
+      <label>API 金鑰（只存在這台裝置的瀏覽器，不會上傳到資料庫）
+        <input id="vKey" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <label>模型 <select id="vModel"></select></label>
+      <p class="hint">金鑰可到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請。生成時會把影片連結送給 Google Gemini。</p>
+    </details>
     <label>標題（可留空，會自動抓取） <input id="vTitle"></label>
     <label>標籤（情境，點選或輸入後按 Enter）
       <div class="taginput" id="vTags"><input placeholder="例如：旅遊"></div>

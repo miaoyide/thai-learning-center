@@ -1,0 +1,273 @@
+// 用 Gemini 直接「看」YouTube 影片，產生帶時間的逐字稿（含拼音／翻譯）。
+// 純前端呼叫：金鑰只存在使用者自己的瀏覽器（localStorage），不進 repo、不進 Firestore。
+import { parseTime, fmtTime } from "./subtitles.js";
+
+const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
+const KEY_STORE = "geminiKey";
+const MODEL_STORE = "geminiModel";
+
+export const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-4-hydrogen", "gemini-3.5-flash-lite"];
+
+const store = {
+  get: (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+  set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} },
+};
+export const getGeminiKey = () => store.get(KEY_STORE);
+export const setGeminiKey = (v) => store.set(KEY_STORE, v.trim());
+export const getGeminiModel = () => (GEMINI_MODELS.includes(store.get(MODEL_STORE)) ? store.get(MODEL_STORE) : GEMINI_MODELS[0]);
+export const setGeminiModel = (v) => store.set(MODEL_STORE, v);
+
+// lang: "th"（泰文＋拼音＋英文）或 "en"（英文＋繁體中文）
+function buildPrompt(lang) {
+  const spoken = lang === "th" ? "Thai" : "English";
+  const fields = lang === "th"
+    ? `- "text": the sentence exactly as spoken, in Thai script.
+- "roman": romanization of that sentence the way Thai people actually pronounce it, with tone diacritics.
+- "meaning": a natural English translation.`
+    : `- "text": the sentence exactly as spoken, in English.
+- "roman": always an empty string.
+- "meaning": a natural translation in Traditional Chinese (繁體中文).`;
+  return `Transcribe the spoken ${spoken} in this video for a language learner.
+
+Return JSON only, in this shape: {"cues":[{"t":"M:SS","text":"","roman":"","meaning":""}]}
+
+Rules:
+- Listen to the audio and transcribe what is actually said, verbatim. Do not summarise, and do not skip any part of the video, from the first word to the last.
+- One cue per sentence or short phrase (roughly 2-8 seconds of speech), in order.
+- "t": the moment the cue starts being spoken, as M:SS (or H:MM:SS past one hour), measured from the start of the video.
+${fields}
+- Skip music, sound effects and speech in other languages. If nothing in ${spoken} is spoken, return {"cues":[]}.
+- No line breaks inside any value, no Markdown, no commentary.`;
+}
+
+const SCHEMA = {
+  type: "object",
+  properties: {
+    cues: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { t: { type: "string" }, text: { type: "string" }, roman: { type: "string" }, meaning: { type: "string" } },
+        required: ["t", "text", "roman", "meaning"],
+      },
+    },
+  },
+  required: ["cues"],
+};
+
+async function post(key, body, signal) {
+  let r;
+  try {
+    r = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+    throw new Error("連不上 Gemini（網路問題，或被瀏覽器擋下）");
+  }
+  let json = null;
+  try { json = await r.json(); } catch {}
+  if (r.ok) return json;
+  const err = (Array.isArray(json) ? json[0] : json)?.error ?? {};
+  const e = new Error(explain(r.status, err));
+  e.status = r.status;
+  e.badKey = /API key|prepay|credits|billing/i.test(err.message || ""); // 金鑰或帳務問題：重試也沒用，直接請使用者處理
+  throw e;
+}
+
+function explain(status, err) {
+  const msg = err.message || `HTTP ${status}`;
+  if (/prepay|credits|billing/i.test(msg)) return "這組金鑰的專案是預付計費方案，而且餘額用完了。請到 https://ai.studio/projects 儲值，或改用沒有綁定計費的專案（免費額度）產生的金鑰。\n" + msg;
+  if (/API key/i.test(msg) || status === 401 || status === 403) return "Gemini 金鑰無效或沒有權限，請檢查金鑰設定。\n" + msg;
+  if (status === 429) return "已達 Gemini 用量上限（免費額度每天、每分鐘都有限制），請稍後再試。\n" + msg;
+  if (status >= 500) return "Gemini 伺服器暫時有問題，請稍後再試。\n" + msg;
+  return msg;
+}
+
+const outputText = (res) => (res?.steps ?? [])
+  .filter((s) => s.type === "model_output")
+  .flatMap((s) => s.content ?? [])
+  .filter((c) => c.type === "text")
+  .map((c) => c.text)
+  .join("");
+
+// 回覆可能包在 ```json 裡、前後有多餘文字，或因為太長被截斷；盡量救回完整的句子
+export function parseCuesJson(text) {
+  const s = text.replace(/^﻿/, "").replace(/```(?:json)?/gi, "").trim();
+  const from = s.search(/[[{]/);
+  if (from < 0) return { items: [], truncated: false };
+  const body = s.slice(from);
+  try {
+    const j = JSON.parse(body);
+    return { items: Array.isArray(j) ? j : j.cues ?? [], truncated: false };
+  } catch {}
+  // 截斷：逐一取出完整的 {...} 物件（值裡面不會有巢狀物件）
+  const items = [];
+  const re = /\{[^{}]*\}/g;
+  let m;
+  while ((m = re.exec(body))) {
+    try { const o = JSON.parse(m[0]); if (o && typeof o.text === "string") items.push(o); } catch {}
+  }
+  return { items, truncated: true };
+}
+
+const oneLine = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+
+function toCues(items) {
+  const cues = [];
+  for (const it of items) {
+    const start = parseTime(oneLine(it.t ?? it.time ?? it.start));
+    const thai = oneLine(it.text);
+    if (start == null || !thai) continue;
+    cues.push({ start, thai, roman: oneLine(it.roman), english: oneLine(it.meaning) });
+  }
+  // 模型偶爾會把時間排錯；穩定排序後，同一秒的句子維持原順序
+  return cues.map((c, i) => [c, i]).sort((a, b) => a[0].start - b[0].start || a[1] - b[1]).map(([c]) => c);
+}
+
+// 回傳 { cues: [{start, thai, roman, english}], truncated, lastTime }
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+});
+
+// 共用的請求流程：選用參數被拒就退回最基本的請求；模型塞車就重試、再換模型。回傳 { text, status, model }
+async function ask({ key, model, input, minimalInput = input, schema, signal, onStatus, emptyMsg }) {
+  if (!key) throw Object.assign(new Error("尚未設定 Gemini 金鑰"), { badKey: true });
+  const once = async (m) => {
+    try {
+      return await post(key, {
+        model: m, store: false, input,
+        response_format: { type: "text", mime_type: "application/json", schema },
+        generation_config: { thinking_level: "low" },
+      }, signal);
+    } catch (e) {
+      // 選用參數不被接受時（API 改版、模型不支援），退回最基本的請求；格式要求已經寫在 prompt 裡
+      if (e.status !== 400 || e.badKey) throw e;
+      return post(key, { model: m, store: false, input: minimalInput }, signal);
+    }
+  };
+  // 模型塞車（5xx）很常見而且通常很短暫：同一個模型等一下再試，還是不行就換下一個模型
+  const models = [model, ...GEMINI_MODELS.filter((m) => m !== model)];
+  let res, used, lastErr;
+  for (const m of models) {
+    for (const wait of [0, 5, 15]) {
+      if (wait) { onStatus?.(`${m} 忙線中，${wait} 秒後重試`); await sleep(wait * 1000, signal); }
+      onStatus?.(m === model ? "" : `改用 ${m}`);
+      try { res = await once(m); used = m; break; } catch (e) {
+        if (e.name === "AbortError" || !(e.status >= 500)) throw e;
+        lastErr = e;
+      }
+    }
+    if (res) break;
+  }
+  if (!res) throw lastErr;
+  if (res?.status === "failed" || res?.status === "cancelled") {
+    throw new Error("Gemini 沒有完成：" + (res.errors?.map((x) => x.message).join("；") || res.status));
+  }
+  const text = outputText(res);
+  if (!text.trim()) throw new Error(emptyMsg || "Gemini 沒有回傳內容");
+  return { text, status: res.status, model: used };
+}
+
+// 回傳 { cues: [{start, thai, roman, english}], model, truncated, lastTime }
+export async function transcribeYoutube({ videoId, lang, key = getGeminiKey(), model = getGeminiModel(), signal, onStatus }) {
+  const video = { type: "video", uri: `https://www.youtube.com/watch?v=${videoId}` };
+  const text = { type: "text", text: buildPrompt(lang) };
+  const res = await ask({
+    key, model, signal, onStatus, schema: SCHEMA,
+    // 逐字稿只需要聲音，畫面用低解析度省 token（能處理的影片也比較長）
+    input: [text, { ...video, resolution: "low" }],
+    minimalInput: [text, video],
+    emptyMsg: "Gemini 沒有回傳內容（影片可能不是公開的、太長，或被內容政策擋下）",
+  });
+  const { items, truncated } = parseCuesJson(res.text);
+  const cues = toCues(items);
+  return {
+    cues,
+    model: res.model,
+    truncated: truncated || res.status === "incomplete" || res.status === "requires_continuation",
+    lastTime: cues.length ? fmtTime(cues.at(-1).start) : "",
+  };
+}
+
+/* ---------- 本集重點：從逐字稿挑出值得學的單字與常用句型 ---------- */
+const HL_SCHEMA = (() => {
+  const str = { type: "string" };
+  const ex = { type: "object", properties: { text: str, roman: str, meaning: str }, required: ["text", "roman", "meaning"] };
+  return {
+    type: "object",
+    properties: {
+      words: { type: "array", items: { type: "object", properties: { text: str, roman: str, meaning: str, note: str }, required: ["text", "roman", "meaning", "note"] } },
+      patterns: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { pattern: str, roman: str, meaning: str, explain: str, examples: { type: "array", items: ex } },
+          required: ["pattern", "roman", "meaning", "explain", "examples"],
+        },
+      },
+    },
+    required: ["words", "patterns"],
+  };
+})();
+
+function buildHighlightPrompt(lang, transcript, known) {
+  const th = lang === "th";
+  const target = th ? "Thai" : "English";
+  const meaning = th ? "a short English meaning" : "a short meaning in Traditional Chinese (繁體中文)";
+  const roman = th ? "romanization the way Thai people actually pronounce it, with tone diacritics" : "always an empty string";
+  return `Below is the transcript of a short ${target} video (usually an interview or talk). Pick what is most worth learning from it for this learner.
+
+The learner: a native Chinese speaker (Traditional Chinese, Taiwan) at roughly elementary level in ${target}. They can get by stringing single words together, but cannot build proper sentences yet${th ? ", and cannot read Thai script, so they rely on the romanization" : ""}. They want everyday spoken ${target}, not textbook or formal language.
+
+Return JSON only, in this shape:
+{"words":[{"text":"","roman":"","meaning":"","note":""}],"patterns":[{"pattern":"","roman":"","meaning":"","explain":"","examples":[{"text":"","roman":"","meaning":""}]}]}
+
+"words": 10-20 words or short fixed phrases (fewer if the transcript is short).
+- Choose by usefulness: words this learner will hear and need again and again in daily conversation, at or just above their level. Not the rarest or hardest words.
+- Every word must actually appear in the transcript. Give it in its basic dictionary form, in the same script as the transcript.
+- Skip names and proper nouns, numbers, pronouns, politeness particles${th ? " (ครับ, ค่ะ, นะ and the like)" : ""}, and everything in the "already known" list.
+- "roman": ${roman}. "meaning": ${meaning}, as used in this video.
+- "note": one short line in Traditional Chinese on how it is used or what it is easily confused with; empty string if there is nothing worth saying.
+- Order them by usefulness, most useful first.
+
+"patterns": exactly 3 sentence patterns that native speakers use all the time in speech and that appear in this transcript.
+- "pattern": the reusable frame with "…" for the slot${th ? ', for example "อยาก…" or "…ได้ไหม"' : ', for example "I\'m about to …"'}. "roman": ${roman}. "meaning": ${meaning}.
+- "explain": one or two sentences in Traditional Chinese: when people say this and what goes in the slot.
+- "examples": 3 sentences. The first is the sentence from the transcript that uses the pattern, quoted as it was said; the other two are new, short, everyday sentences made with words this learner would know. Each with "roman" and "meaning" as above.
+
+No Markdown, no line breaks inside values, no commentary.
+
+Already known (do not pick these): ${known.length ? known.join(", ") : "(none)"}
+
+Transcript:
+${transcript}`;
+}
+
+const cleanEx = (e) => ({ thai: oneLine(e?.text), roman: oneLine(e?.roman), english: oneLine(e?.meaning) });
+
+// cues: [{thai}]；known: 已有字卡的詞。回傳 { words: [{thai, roman, english, note}], patterns: [{thai, roman, english, explain, examples}], model }
+export async function extractHighlights({ cues, lang, known = [], key = getGeminiKey(), model = getGeminiModel(), signal, onStatus }) {
+  const transcript = cues.map((c) => c.thai).join("\n");
+  const prompt = buildHighlightPrompt(lang, transcript, known.slice(0, 1500));
+  const res = await ask({ key, model, signal, onStatus, schema: HL_SCHEMA, input: [{ type: "text", text: prompt }] });
+  let j;
+  try {
+    const s = res.text.replace(/```(?:json)?/gi, "").trim();
+    j = JSON.parse(s.slice(s.indexOf("{"), s.lastIndexOf("}") + 1));
+  } catch {
+    throw new Error("Gemini 的回覆無法解析，請再試一次");
+  }
+  const words = (j.words ?? []).map((w) => ({ ...cleanEx(w), note: oneLine(w.note) })).filter((w) => w.thai);
+  const patterns = (j.patterns ?? []).map((p) => ({
+    ...cleanEx({ ...p, text: p.pattern }),
+    explain: oneLine(p.explain),
+    examples: (p.examples ?? []).map(cleanEx).filter((e) => e.thai),
+  })).filter((p) => p.thai);
+  if (!words.length && !patterns.length) throw new Error("Gemini 沒有挑出任何重點，請再試一次");
+  return { words, patterns, model: res.model };
+}

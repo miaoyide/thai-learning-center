@@ -9,6 +9,7 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot
 import { firebaseConfig } from "./firebase-config.js";
 import { buildCues, cuesToTranscript, extractVideoId } from "./subtitles.js";
 import { mountVideo } from "./video.js";
+import { GEMINI_MODELS, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, transcribeYoutube, extractHighlights } from "./gemini.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -1105,7 +1106,7 @@ function exportBackup() {
     })),
     videos: raw.videos.map((v) => ({
       id: v.id, lang: langOf(v), title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
-      cues: v.cues ?? [], tags: tagsOf(v), createdAt: iso(v.createdAt),
+      cues: v.cues ?? [], highlights: v.highlights ?? null, tags: tagsOf(v), createdAt: iso(v.createdAt),
     })),
     articles: raw.articles.map((a) => ({
       id: a.id, lang: langOf(a), title: a.title ?? "", subtitle: a.subtitle ?? "", body: a.body ?? "", tags: tagsOf(a),
@@ -1551,20 +1552,45 @@ $("saForm").onsubmit = async (e) => {
 $("smartBtn").onclick = () => (page === "articles" ? openSmartArticle() : openSmartCards());
 
 /* ---------- 影片 ---------- */
-function openVideo(v) {
+function openVideo(v, { autoHighlights = false } = {}) {
   if (!v) return;
   closeVideo();
   viewing = "video";
   applyView();
   scrollTo(0, 0);
+  const justAdded = new Set(); // 剛加入、但 Firestore 快照可能還沒回來的詞
   unmountVideo = mountVideo($("player"), v, {
     esc, ICON, onBack: closeVideo,
     addCard: (c) => readOnly() ? Promise.reject(new Error("訪客模式不能新增字卡")) : addDoc(collection(db, "cards"), {
       lang, type: "sentence", thai: c.thai, roman: c.roman, english: c.english, detail: "", tags: v.tags ?? [],
       createdAt: serverTimestamp(),
     }),
+    hl: {
+      canEdit: !readOnly(),
+      auto: autoHighlights,
+      has: (t) => justAdded.has(termClean(t)) || cards.some((c) => termClean(c.thai) === termClean(t)),
+      add: async (kind, it) => {
+        await addDoc(collection(db, "cards"), {
+          lang, type: kind === "words" ? "word" : "sentence", thai: termClean(it.thai), roman: it.roman, english: it.english,
+          detail: kind === "words" ? it.note || "" : patternDetail(it), tags: v.tags ?? [],
+          createdAt: serverTimestamp(),
+        });
+        justAdded.add(termClean(it.thai));
+      },
+      generate: async (onStatus) => {
+        const { words, patterns } = await extractHighlights({ cues: v.cues, lang, known: cards.map((c) => c.thai), onStatus });
+        const highlights = { words, patterns };
+        await updateDoc(doc(db, "videos", v.id), { highlights });
+        return highlights;
+      },
+    },
   });
 }
+// 句型字卡的說明：用法＋例句（每句獨立一行，沿用字卡說明的 Markdown 慣例）
+const patternDetail = (p) => [
+  p.explain,
+  p.examples?.length ? "### 例句\n" + p.examples.map((e) => `- **${e.thai}**\n  ${e.roman ? `_${e.roman}_\n  ` : ""}${e.english}`).join("\n") : "",
+].filter(Boolean).join("\n\n");
 function closeVideo() {
   if (unmountVideo) unmountVideo();
   unmountVideo = null;
@@ -1578,14 +1604,71 @@ function openVideoDlg(v) {
   $("vUrl").value = v?.url ?? "";
   videoTags.set(v?.tags);
   $("vTitle").value = v?.title ?? "";
-  $("vThai").value = v ? cuesToTranscript(v.cues) : "";
-  // 部分句子沒有譯文時用 "-" 佔位，才不會因為空行被略過而錯位（buildCues 會把 "-" 還原成空白）
-  const col = (k) => (v?.cues.some((c) => c[k]) ? v.cues.map((c) => c[k] || "-").join("\n") : "");
-  $("vEnglish").value = col("english");
-  $("vRoman").value = col("roman");
+  fillVideoCues(v?.cues ?? []);
+  $("vKey").value = getGeminiKey();
+  $("vModel").value = getGeminiModel();
+  $("vKeyBox").open = false;
+  $("vGenMsg").textContent = "";
   $("vdlg").showModal();
 }
+function fillVideoCues(cues) {
+  $("vThai").value = cuesToTranscript(cues);
+  // 部分句子沒有譯文時用 "-" 佔位，才不會因為空行被略過而錯位（buildCues 會把 "-" 還原成空白）
+  const col = (k) => (cues.some((c) => c[k]) ? cues.map((c) => c[k] || "-").join("\n") : "");
+  $("vEnglish").value = col("english");
+  $("vRoman").value = L().roman ? col("roman") : "";
+}
 $("vCancel").onclick = () => $("vdlg").close();
+
+/* 貼上 YouTube 連結 → Gemini 自動生成逐字稿（泰文＋拼音＋翻譯），填進下面的欄位讓使用者檢查後再儲存 */
+$("vModel").innerHTML = GEMINI_MODELS.map((m) => `<option>${m}</option>`).join("");
+$("vKey").onchange = () => setGeminiKey($("vKey").value);
+$("vKey").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); $("vKey").blur(); } };
+$("vModel").onchange = () => setGeminiModel($("vModel").value);
+
+let genAbort = null;
+$("vdlg").addEventListener("close", () => genAbort?.abort());
+$("vGen").onclick = async () => {
+  if (genAbort) return genAbort.abort(); // 生成中再按一次＝取消
+  const msg = (t) => { $("vGenMsg").textContent = t; };
+  const videoId = extractVideoId($("vUrl").value);
+  if (!videoId) { msg("請先貼上 YouTube 連結"); return $("vUrl").focus(); }
+  setGeminiKey($("vKey").value);
+  if (!getGeminiKey()) {
+    $("vKeyBox").open = true;
+    msg("請先填入 Gemini 金鑰");
+    return $("vKey").focus();
+  }
+  if ($("vThai").value.trim() && !confirm("會覆蓋目前的字幕、翻譯與拼音，確定要重新生成嗎？")) return;
+
+  genAbort = new AbortController();
+  const t0 = Date.now();
+  let note = ""; // 重試／換模型時的狀態
+  const tick = () => msg(`生成中… ${fmtElapsed(Date.now() - t0)}（${note || "長影片可能要幾分鐘"}）`);
+  const timer = setInterval(tick, 1000);
+  tick();
+  $("vGen").textContent = "取消";
+  try {
+    const { cues, truncated, lastTime, model } = await transcribeYoutube({
+      videoId, lang, signal: genAbort.signal, onStatus: (s) => { note = s; tick(); },
+    });
+    if (!cues.length) return msg(`沒有聽到${L().term}內容，或回覆無法解析`);
+    fillVideoCues(cues);
+    const by = model === getGeminiModel() ? "" : `（${model}）`;
+    msg(truncated
+      ? `影片太長，只生成到 ${lastTime}（共 ${cues.length} 句），後面的需要手動補上${by}`
+      : `完成，共 ${cues.length} 句${by}。請檢查後再儲存`);
+  } catch (err) {
+    if (err.name === "AbortError") return msg("已取消");
+    if (err.badKey) $("vKeyBox").open = true;
+    msg("生成失敗：" + err.message);
+  } finally {
+    clearInterval(timer);
+    genAbort = null;
+    $("vGen").textContent = "自動生成逐字稿";
+  }
+};
+const fmtElapsed = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
 async function fetchTitle(url) {
   try {
@@ -1609,8 +1692,10 @@ $("vform").onsubmit = async (e) => {
     const title = $("vTitle").value.trim() || (await fetchTitle(url)) || videoId;
     const data = { lang, title, url, videoId, cues, tags: videoTags.get() };
     if (editingVideoId) await updateDoc(doc(db, "videos", editingVideoId), data);
-    else await addDoc(collection(db, "videos"), { ...data, createdAt: serverTimestamp() });
+    const added = editingVideoId ? null : await addDoc(collection(db, "videos"), { ...data, createdAt: serverTimestamp() });
     $("vdlg").close();
+    // 新影片存好就直接打開，並自動挑出本集重點（有設定 Gemini 金鑰時）
+    if (added && getGeminiKey()) openVideo({ id: added.id, ...data }, { autoHighlights: true });
   } catch (err) {
     alert("儲存失敗：" + err.message + "\n（若是 permission-denied，請在 Firestore 規則加入 videos）");
   } finally {
@@ -1690,7 +1775,7 @@ function checkSelection() {
   if (!sel.rangeCount || sel.isCollapsed) return hideSelPop();
   const range = sel.getRangeAt(0);
   const node = range.commonAncestorContainer;
-  const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail, .cue");
+  const host = (node.nodeType === 1 ? node : node.parentElement)?.closest(".detail, .cue, .hl");
   if (!host) return hideSelPop();
   // 泰文版只取選取範圍內的泰文；英文版取整段選取文字（需含英文字母）
   const txt = sel.toString().replace(/\s+/g, " ").trim();
