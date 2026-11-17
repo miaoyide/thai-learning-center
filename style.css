@@ -111,24 +111,40 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .hlex .thai { font-size:1rem; }
 .hlbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
 .hlmsg { margin:0; font-size:.85rem; color:var(--muted); }
-/* 窄螢幕：影片 → 本集重點 → 字幕。.vside 不產生外框，用 order 把本集重點排到字幕前面 */
+/* 影片頁有兩種模式（#player 上的 class，由 video.js 切換）：
+   影片模式 mode-watch：專心看影片，只有影片＋字幕，不顯示本集重點
+   閱讀模式 mode-read ：影片縮小，把版面留給本集重點
+   窄螢幕：影片 →（本集重點）→ 字幕。.vside 不產生外框，用 order 把本集重點排到字幕前面 */
 #player:not([hidden]) { display:flex; flex-direction:column; }
 .vside { display:contents; }
 .vplayer { order:1; }
 .vhl { order:2; }
 .cues { order:3; }
-/* 寬螢幕（筆電、桌機）：左欄是影片＋字幕（字幕只佔一小塊，自己捲動、跟著播放走），固定在畫面上；
-   右欄整欄給本集重點，跟著頁面捲動。影片刻意縮小，把版面留給文字 */
+.mode-watch .vhl { display:none; }
+.vmodes { display:inline-flex; gap:2px; margin-left:auto; flex:none; }
+.vmodes button { padding:4px 10px; font-size:.9rem; }
+.vmodes button.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 @media (min-width:1100px) {
   main:has(> #player:not([hidden])) { max-width:1680px; padding:8px 24px 16px; }
-  #player:not([hidden]) { display:grid; grid-template-columns:minmax(400px, .8fr) minmax(0, 1.2fr); gap:0 28px; align-items:start; }
-  .vside { display:flex; flex-direction:column; position:sticky; top:0; height:100vh; padding-bottom:12px; box-sizing:border-box; }
+  #player:not([hidden]) { display:grid; gap:0 28px; align-items:start; }
   .vplayer { position:static; flex:none; }
-  .vplayer iframe { width:min(100%, calc(40vh * 16 / 9)); margin:0 auto; }
-  .cues { flex:1; min-height:0; overflow-y:auto; border:1px solid var(--border); border-radius:10px; }
-  .cue { scroll-margin-top:0; padding:8px 12px; }
+  .cues { overflow-y:auto; border:1px solid var(--border); border-radius:10px; }
+  .cue { scroll-margin-top:0; }
   .cue:last-child { border-bottom:none; }
-  .vhl { margin:8px 0 0; }
+
+  /* 影片模式：左邊大影片，右邊整欄字幕（自己捲動、跟著播放走）；兩邊都固定在畫面上 */
+  #player.mode-watch { grid-template-columns:minmax(0, 1.5fr) minmax(360px, 1fr); }
+  .mode-watch .vplayer { position:sticky; top:0; }
+  .mode-watch .vplayer iframe { width:min(100%, calc((100vh - 120px) * 16 / 9)); margin:0 auto; }
+  .mode-watch .cues { position:sticky; top:8px; height:calc(100vh - 20px); box-sizing:border-box; }
+
+  /* 閱讀模式：左欄是縮小的影片＋一小塊字幕，固定在畫面上；右欄整欄給本集重點，跟著頁面捲動 */
+  #player.mode-read { grid-template-columns:minmax(400px, .8fr) minmax(0, 1.2fr); }
+  .mode-read .vside { display:flex; flex-direction:column; position:sticky; top:0; height:100vh; padding-bottom:12px; box-sizing:border-box; }
+  .mode-read .vplayer iframe { width:min(100%, calc(40vh * 16 / 9)); margin:0 auto; }
+  .mode-read .cues { flex:1; min-height:0; }
+  .mode-read .cue { padding:8px 12px; }
+  .mode-read .vhl { margin:8px 0 0; }
 }
 .cue.on { background:var(--detail-bg); box-shadow:inset 3px 0 0 var(--accent); }
 .ctime { color:var(--muted); font-size:.8rem; padding-top:.45em; font-variant-numeric:tabular-nums; }

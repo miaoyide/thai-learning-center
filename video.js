@@ -28,6 +28,10 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
       <div class="vhead">
         <button id="vBack">← 返回</button>
         <strong class="vtitle">${esc(video.title || video.videoId)}</strong>
+        <span class="vmodes" role="group" aria-label="版面模式">
+          <button data-mode="watch" title="影片模式：大影片＋字幕，專心看（M 切換）">影片模式</button>
+          <button data-mode="read" title="閱讀模式：影片縮小，顯示本集重點（M 切換）">閱讀模式</button>
+        </span>
       </div>
       <!-- 頁面全域設為 no-referrer，但 YouTube 嵌入需要 referrer，所以只在這個 iframe 開啟 -->
       <iframe id="ytFrame" referrerpolicy="strict-origin-when-cross-origin"
@@ -103,6 +107,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     again: () => jump(Math.max(0, active)),
     next: () => jump(Math.min(video.cues.length - 1, active + 1)),
     loop: () => setLoop(!loopOn),
+    mode: () => setMode(mode === "watch" ? "read" : "watch"),
     toggle: () => { if (ready) player.getPlayerState() === 1 ? player.pauseVideo() : player.playVideo(); },
   };
   ctl.onclick = (e) => {
@@ -113,7 +118,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     b.blur(); // 不留焦點，接下來按空白鍵才是播放／暫停，而不是再按一次這顆按鈕
   };
   setRate(rate);
-  const KEYS = { " ": "toggle", ArrowLeft: "prev", ArrowRight: "next", r: "again", R: "again", l: "loop", L: "loop" };
+  const KEYS = { " ": "toggle", ArrowLeft: "prev", ArrowRight: "next", r: "again", R: "again", l: "loop", L: "loop", m: "mode", M: "mode" };
   const onKey = (e) => {
     const name = KEYS[e.key];
     if (!name || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
@@ -124,6 +129,26 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
   document.addEventListener("keydown", onKey);
 
   container.querySelector("#vBack").onclick = onBack;
+
+  /* ---------- 版面模式：影片模式（影片＋字幕）／閱讀模式（影片縮小＋本集重點），記住上次的選擇 ---------- */
+  const modeBtns = [...container.querySelectorAll("[data-mode]")];
+  let mode = "";
+  const setMode = (m) => {
+    mode = m === "watch" ? "watch" : "read";
+    container.classList.toggle("mode-watch", mode === "watch");
+    container.classList.toggle("mode-read", mode === "read");
+    modeBtns.forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+    try { localStorage.setItem("videoMode", mode); } catch (e) {}
+    // 版面變了，把正在播的那一句重新移到看得到的位置
+    if (cueEls[active]) requestAnimationFrame(() => { if (!destroyed && cueEls[active]) showCue(cueEls[active]); });
+  };
+  container.querySelector(".vmodes").onclick = (e) => {
+    const b = e.target.closest("[data-mode]");
+    if (b) { setMode(b.dataset.mode); b.blur(); }
+  };
+  let savedMode = "";
+  try { savedMode = localStorage.getItem("videoMode") || ""; } catch (e) {}
+  setMode(savedMode);
   container.querySelector(".cues").onclick = async (e) => {
     const el = e.target.closest(".cue");
     if (!el) return;
@@ -295,6 +320,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     destroyed = true;
     clearInterval(timer);
     document.removeEventListener("keydown", onKey);
+    container.classList.remove("mode-watch", "mode-read");
     try { player?.destroy(); } catch (e) {}
     container.innerHTML = "";
   };
