@@ -135,14 +135,14 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
 });
 
 // 共用的請求流程：選用參數被拒就退回最基本的請求；模型塞車就重試、再換模型。回傳 { text, status, model }
-async function ask({ key, model, input, minimalInput = input, schema, signal, onStatus, emptyMsg }) {
+async function ask({ key, model, input, minimalInput = input, schema, signal, onStatus, emptyMsg, thinking = "low" }) {
   if (!key) throw Object.assign(new Error("尚未設定 Gemini 金鑰"), { badKey: true });
   const once = async (m) => {
     try {
       return await post(key, {
         model: m, store: false, input,
         response_format: { type: "text", mime_type: "application/json", schema },
-        generation_config: { thinking_level: "low" },
+        generation_config: { thinking_level: thinking },
       }, signal);
     } catch (e) {
       // 選用參數不被接受時（API 改版、模型不支援），退回最基本的請求；格式要求已經寫在 prompt 裡
@@ -251,9 +251,17 @@ ${transcript}`;
 const cleanEx = (e) => ({ thai: oneLine(e?.text), roman: oneLine(e?.roman), english: oneLine(e?.meaning) });
 
 // cues: [{thai}]；known: 已有字卡的詞。回傳 { words: [{thai, roman, english, note}], patterns: [{thai, roman, english, explain, examples}], model }
-export async function extractHighlights({ cues, lang, known = [], key = getGeminiKey(), model = getGeminiModel(), signal, onStatus }) {
+// only（選填）：{ kind: "words" | "patterns", avoid: [...] } 只換一個——使用者覺得某一項已經會了或不需要時，補一個新的
+export async function extractHighlights({ cues, lang, known = [], only, key = getGeminiKey(), model = getGeminiModel(), signal, onStatus }) {
   const transcript = cues.map((c) => c.thai).join("\n");
-  const prompt = buildHighlightPrompt(lang, transcript, known.slice(0, 1500));
+  let prompt = buildHighlightPrompt(lang, transcript, known.slice(0, 1500));
+  if (only) {
+    const [what, other] = only.kind === "words" ? ["word", "patterns"] : ["sentence pattern", "words"];
+    prompt += `
+
+IMPORTANT, this overrides the counts above: return exactly ONE new ${what} in "${only.kind}" and leave "${other}" as an empty array. The learner already knows, or does not want, every item in the list below. Pick the next most useful ${what} from the transcript that is not in the list and is not a near-duplicate or simple variant of anything in it:
+${only.avoid.join(", ")}`;
+  }
   const res = await ask({ key, model, signal, onStatus, schema: HL_SCHEMA, input: [{ type: "text", text: prompt }] });
   let j;
   try {
@@ -270,4 +278,53 @@ export async function extractHighlights({ cues, lang, known = [], key = getGemin
   })).filter((p) => p.thai);
   if (!words.length && !patterns.length) throw new Error("Gemini 沒有挑出任何重點，請再試一次");
   return { words, patterns, model: res.model };
+}
+
+/* ---------- 找影片：把候選影片的標題翻成中文，並判斷適不適合練日常口語 ---------- */
+const RATE_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { i: { type: "integer" }, zh: { type: "string" }, kind: { type: "string" }, score: { type: "integer" } },
+        required: ["i", "zh", "kind", "score"],
+      },
+    },
+  },
+  required: ["items"],
+};
+
+// videos: [{ title, channel, description }]。回傳同樣順序的 [{ zh, kind, score }]（失敗的項目為 null）
+// 這是很簡單的分類工作，固定用最快的模型、不花時間思考，讓「找影片」不用等太久
+export async function rateVideos({ videos, lang, key = getGeminiKey(), model = "gemini-3.5-flash-lite", signal }) {
+  const target = lang === "th" ? "Thai" : "English";
+  const list = videos.map((v, i) => `${i}. ${v.title} | channel: ${v.channel} | ${oneLine(v.description).slice(0, 160)}`).join("\n");
+  const prompt = `These are YouTube videos found for a language learner who wants to practise listening to everyday spoken ${target}. The learner is a Traditional Chinese speaker at elementary level and cannot read ${target} well, so they cannot judge the titles themselves.
+
+For each video return:
+- "i": its number.
+- "zh": the title translated into natural Traditional Chinese (繁體中文), short, without hashtags or emoji.
+- "kind": one of 訪談, 街訪, vlog, 食記, 旅遊, 教學, 新聞, 戲劇, 音樂, 其他 — your best guess from the title, channel and description.
+- "score": 0-3, how good it is for hearing real people speak everyday ${target}. 3 = people talking naturally about daily life (interviews, street interviews, casual vlogs, chatting). 2 = spoken but more scripted or one-sided (reviews, tours, explainers). 1 = formal or hard for a beginner (news, lectures, politics). 0 = little or no useful speech (music, drama clips, gameplay, compilations, ads), or not in ${target}.
+
+Return JSON only: {"items":[{"i":0,"zh":"","kind":"","score":0}]}
+
+${list}`;
+  const res = await ask({ key, model, signal, schema: RATE_SCHEMA, thinking: "minimal", input: [{ type: "text", text: prompt }] });
+  let j;
+  try {
+    const s = res.text.replace(/```(?:json)?/gi, "").trim();
+    j = JSON.parse(s.slice(s.search(/[[{]/)));
+  } catch {
+    throw new Error("Gemini 的回覆無法解析");
+  }
+  const out = videos.map(() => null);
+  for (const it of Array.isArray(j) ? j : j.items ?? []) {
+    if (Number.isInteger(it?.i) && it.i >= 0 && it.i < out.length) {
+      out[it.i] = { zh: oneLine(it.zh), kind: oneLine(it.kind), score: Math.max(0, Math.min(3, +it.score || 0)) };
+    }
+  }
+  return out;
 }

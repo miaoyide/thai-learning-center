@@ -9,7 +9,8 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot
 import { firebaseConfig } from "./firebase-config.js";
 import { buildCues, cuesToTranscript, extractVideoId } from "./subtitles.js";
 import { mountVideo } from "./video.js";
-import { GEMINI_MODELS, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, transcribeYoutube, extractHighlights } from "./gemini.js";
+import { GEMINI_MODELS, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, transcribeYoutube, extractHighlights, rateVideos } from "./gemini.js";
+import { getYoutubeKey, setYoutubeKey, getSeen, markSeen, findCandidates, queryCount } from "./youtube.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -37,6 +38,10 @@ const raw = { cards: [], videos: [], articles: [] }; // Firestore 回來的全�
 /* ---------- 狀態 ---------- */
 let cards = [];
 let videos = [];
+// 背景生成影片的工作（定義在檔案後段「背景生成工作」；狀態放在這裡，列表第一次繪製時才不會還沒初始化）
+let jobs = [];
+const newVideoIds = new Set(); // 背景生成完成、還沒打開過的影片，列表上標「新」
+const hlWaiting = new Map();   // 影片 id → 背景挑重點的 Promise（影片頁打開時接著等，不重複生成）
 let articles = [];
 let editingId = null;
 let editingVideoId = null;
@@ -214,6 +219,7 @@ const ICON = {
   play: svg('<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>'),
   edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  swap: svg('<path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/>'),
   flag: svg('<path d="M5 22V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>'),
   archive: svg('<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/>'),
   del: svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>'),
@@ -536,6 +542,7 @@ function go(p) {
   $("typeTabs").hidden = p !== "cards"; // 單字／句子分頁只用於字卡
   $("importBtn").hidden = p !== "cards"; // 批次匯入只用於字卡
   $("smartBtn").hidden = p !== "cards" && p !== "articles";
+  $("findBtn").hidden = p !== "videos" || readOnly();
   $("archiveBtn").hidden = p !== "cards"; // 封存只用於字卡
   $("archiveHint").hidden = p !== "cards";
   $("search").placeholder = searchHint();
@@ -707,14 +714,16 @@ $("home").onclick = (e) => {
 function renderVideos(q) {
   const list = visible = videos.filter((v) => matchTags(v) &&
     (!q || [v.title || "", ...tagsOf(v)].join(" ").toLowerCase().includes(q)));
-  $("cards").innerHTML = list.map((v) => `
+  // 最上面是背景生成中、還沒存檔的影片；已存檔的影片若是新完成的標「新」，重點還在挑的標「挑重點中」
+  const top = q ? "" : jobRows();
+  $("cards").innerHTML = top + (list.map((v) => `
     <div class="card" data-id="${v.id}">
       <div class="vline">
         <input type="checkbox" class="sel" ${selected.has(v.id) ? "checked" : ""}>
-        <div class="vname">${esc(v.title || v.videoId)}</div>
-        <div class="english vcount">${v.cues?.length ?? 0} 句</div>
+        <div class="vname">${newVideoIds.has(v.id) ? `<span class="newtag">新</span>` : ""}${esc(v.title || v.videoId)}${v.origTitle ? `<span class="subtitle muted">${esc(v.origTitle)}</span>` : ""}</div>
+        <div class="english vcount">${jobOfDoc(v.id) ? "挑重點中…" : `${v.cues?.length ?? 0} 句`}</div>
       </div>
-    </div>`).join("") || "<p>還沒有影片。</p>";
+    </div>`).join("") || (top ? "" : "<p>還沒有影片。</p>"));
   updateBar();
 }
 
@@ -1105,7 +1114,7 @@ function exportBackup() {
       createdAt: iso(c.createdAt),
     })),
     videos: raw.videos.map((v) => ({
-      id: v.id, lang: langOf(v), title: v.title ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
+      id: v.id, lang: langOf(v), title: v.title ?? "", origTitle: v.origTitle ?? "", url: v.url ?? "", videoId: v.videoId ?? "",
       cues: v.cues ?? [], highlights: v.highlights ?? null, tags: tagsOf(v), createdAt: iso(v.createdAt),
     })),
     articles: raw.articles.map((a) => ({
@@ -1559,6 +1568,7 @@ function openVideo(v, { autoHighlights = false } = {}) {
   applyView();
   scrollTo(0, 0);
   const justAdded = new Set(); // 剛加入、但 Firestore 快照可能還沒回來的詞
+  if (newVideoIds.delete(v.id)) saveJobs(); // 打開過就不再標「新」
   unmountVideo = mountVideo($("player"), v, {
     esc, ICON, onBack: closeVideo,
     addCard: (c) => readOnly() ? Promise.reject(new Error("訪客模式不能新增字卡")) : addDoc(collection(db, "cards"), {
@@ -1568,6 +1578,7 @@ function openVideo(v, { autoHighlights = false } = {}) {
     hl: {
       canEdit: !readOnly(),
       auto: autoHighlights,
+      wait: hlWaiting.get(v.id), // 背景工作正在替這部影片挑重點：接著等它，不要重複生成
       has: (t) => justAdded.has(termClean(t)) || cards.some((c) => termClean(c.thai) === termClean(t)),
       add: async (kind, it) => {
         await addDoc(collection(db, "cards"), {
@@ -1577,9 +1588,24 @@ function openVideo(v, { autoHighlights = false } = {}) {
         });
         justAdded.add(termClean(it.thai));
       },
+      // 換一個：這一項已經會了或不需要，請 Gemini 從同一份逐字稿補一個新的
+      swap: async (kind, i) => {
+        const h = v.highlights;
+        const skipped = [...(h.skipped ?? []), h[kind][i].thai];
+        const avoid = [...h[kind].map((x) => x.thai), ...skipped];
+        const res = await extractHighlights({ cues: v.cues, lang, known: cards.map((c) => c.thai), only: { kind, avoid } });
+        const taken = new Set(avoid.map(termClean));
+        const item = res[kind].find((x) => !taken.has(termClean(x.thai)));
+        if (!item) throw new Error("這部影片沒有其他合適的可以換了");
+        const highlights = { ...h, [kind]: h[kind].map((x, j) => (j === i ? item : x)), skipped };
+        await updateDoc(doc(db, "videos", v.id), { highlights });
+        return highlights;
+      },
       generate: async (onStatus) => {
-        const { words, patterns } = await extractHighlights({ cues: v.cues, lang, known: cards.map((c) => c.thai), onStatus });
-        const highlights = { words, patterns };
+        // skipped：使用者按過「換一個」的項目，重新挑選時也不要再挑回來
+        const skipped = v.highlights?.skipped ?? [];
+        const { words, patterns } = await extractHighlights({ cues: v.cues, lang, known: [...cards.map((c) => c.thai), ...skipped], onStatus });
+        const highlights = { words, patterns, skipped };
         await updateDoc(doc(db, "videos", v.id), { highlights });
         return highlights;
       },
@@ -1701,6 +1727,289 @@ $("vform").onsubmit = async (e) => {
   } finally {
     btn.disabled = false;
   }
+};
+
+/* ---------- 找影片：YouTube 搜尋候選 → Gemini 翻譯標題並評分 → 選一部就自動生成逐字稿、存檔、挑重點 ---------- */
+const FIND_SHOW = 3; // 一次給幾部候選
+let findPool = [];   // 已搜尋到、還沒顯示的候選（分數高的在前）
+let findShown = [];
+let findRound = -1;  // 用到第幾組關鍵字；每天從不同的一組開始
+let findBusy = false;
+const fMsg = (t) => { $("fMsg").textContent = t; };
+const fmtDur = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+function renderFind() {
+  $("fList").innerHTML = findShown.map((c, i) => `
+    <div class="fitem" data-i="${i}">
+      <img src="${esc(c.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">
+      <div class="finfo">
+        <div class="ftitle">${esc(c.zh || c.title)}</div>
+        ${c.zh ? `<div class="forig" lang="${lang}">${esc(c.title)}</div>` : ""}
+        <div class="fmeta">${[c.kind, fmtDur(c.seconds), c.channel].filter(Boolean).map(esc).join(" · ")}</div>
+      </div>
+      <div class="fbtns">
+        <button type="button" data-act="use" ${findBusy ? "disabled" : ""}>用這部</button>
+        <a href="https://www.youtube.com/watch?v=${c.videoId}" target="_blank" rel="noopener">先看看</a>
+      </div>
+    </div>`).join("");
+  $("fMore").disabled = findBusy;
+}
+
+// 候選池存在這台裝置上，下次打開「找影片」不用重新搜尋
+const POOL_STORE = "ytPool";
+const savePool = () => { try { localStorage.setItem(POOL_STORE, JSON.stringify({ lang: findLang, round: findRound, items: findPool.slice(0, 40) })); } catch (e) {} };
+function loadPool() {
+  try {
+    const p = JSON.parse(localStorage.getItem(POOL_STORE) || "null");
+    if (p?.lang !== lang) return;
+    const have = new Set([...raw.videos.map((v) => v.videoId), ...getSeen()]);
+    findPool = (p.items ?? []).filter((c) => c?.videoId && !have.has(c.videoId));
+    findRound = Number.isInteger(p.round) ? p.round : -1;
+  } catch (e) {}
+}
+
+// 補足候選：搜尋下一組關鍵字，用 Gemini 評分後依分數排序放進 findPool。
+// onPreview：一搜尋到就先把還沒評分的候選交出去顯示，不用乾等評分；say：進度文字
+async function fillFindPool({ onPreview, say = () => {} } = {}) {
+  const taken = new Set([...raw.videos.map((v) => v.videoId), ...getSeen(), ...findPool.map((c) => c.videoId), ...findShown.map((c) => c.videoId)]);
+  for (let tries = 0; findPool.length < FIND_SHOW && tries < 3; tries++) {
+    findRound = findRound < 0 ? Math.floor(Date.now() / 86400000) % queryCount(lang) : findRound + 1;
+    say("搜尋影片中…");
+    let found = await findCandidates({ lang, round: findRound, exclude: [...taken] });
+    found.forEach((c) => taken.add(c.videoId));
+    if (!found.length) continue;
+    found = found.slice(0, 20);
+    if (getGeminiKey()) {
+      onPreview?.(found.slice(0, FIND_SHOW));
+      say(`找到 ${found.length} 部，正在翻譯標題並挑出最適合的…`);
+      try {
+        const rated = await rateVideos({ videos: found, lang });
+        found = found.map((c, i) => ({ ...c, ...(rated[i] || {}) }));
+        // 音樂、戲劇這類沒有口語內容的直接略過，以後也不再出現
+        markSeen(found.filter((c) => c.score === 0).map((c) => c.videoId));
+        found = found.filter((c) => c.score !== 0);
+      } catch (err) {
+        // 評分失敗不擋路：照原本的標題顯示
+      }
+    }
+    findPool.push(...found);
+    findPool.sort((a, b) => (b.score ?? 1) - (a.score ?? 1));
+  }
+}
+// 同一時間只跑一次補貨；背景預先補貨進行中時，前景直接等同一個結果
+let fillPromise = null;
+const ensurePool = (opts) => (fillPromise ??= fillFindPool(opts).finally(() => { fillPromise = null; savePool(); }));
+// 目前這一批顯示出來之後，在背景先把下一批準備好，按「換一批」就能立刻出現
+const prefetchPool = () => { if (findPool.length < FIND_SHOW && getYoutubeKey()) ensurePool().catch(() => {}); };
+
+async function nextFindBatch() {
+  if (findBusy) return;
+  setYoutubeKey($("fYtKey").value);
+  setGeminiKey($("fGemKey").value);
+  if (!getYoutubeKey()) {
+    $("fKeyBox").open = true;
+    fMsg("請先填入 YouTube Data API 金鑰");
+    return $("fYtKey").focus();
+  }
+  markSeen(findShown.map((c) => c.videoId)); // 換掉的這一批以後不再推薦
+  findShown = [];
+  if (findPool.length < FIND_SHOW) {
+    findBusy = true;
+    renderFind();
+    fMsg("搜尋影片中…");
+    try {
+      await ensurePool({
+        say: (t) => { if (findBusy) fMsg(t); },
+        onPreview: (items) => { if (findBusy && !findShown.length) { findShown = items; renderFind(); } },
+      });
+    } catch (err) {
+      findBusy = false;
+      findShown = [];
+      renderFind();
+      if (err.badKey) $("fKeyBox").open = true;
+      return fMsg(err.message);
+    }
+    findBusy = false;
+  }
+  findShown = findPool.splice(0, FIND_SHOW);
+  savePool();
+  renderFind();
+  fMsg(findShown.length
+    ? (getGeminiKey() ? "選一部，系統會在背景生成逐字稿並挑出本集重點（約 1–2 分鐘），這段時間可以做別的事。" : "還沒設定 Gemini 金鑰，所以標題沒有翻譯，選了也無法生成逐字稿。")
+    : "這次沒有找到合適的影片，請按「換一批」再試。");
+  prefetchPool();
+}
+
+function useFound(c) {
+  setGeminiKey($("fGemKey").value);
+  if (!getGeminiKey()) {
+    $("fKeyBox").open = true;
+    fMsg("請先填入 Gemini 金鑰");
+    return $("fGemKey").focus();
+  }
+  // 交給背景工作去生成，這個視窗不用等：可以關掉去做別的事，或繼續挑下一部
+  addJob({ lang, videoId: c.videoId, title: c.zh || c.title, origTitle: c.zh ? c.title : "" });
+  findShown = findShown.filter((x) => x !== c);
+  savePool();
+  renderFind();
+  fMsg(`「${c.zh || c.title}」已開始在背景生成，完成後會出現在影片列表。可以關閉這個視窗，或繼續挑下一部。`);
+}
+
+/* ---------- 背景生成工作：逐字稿 → 存檔 → 挑本集重點，一次跑一部，其餘排隊 ----------
+   工作只存在這個分頁（換頁不受影響，關掉或重新整理分頁就會中斷）。清單另外記在 localStorage，
+   中斷後重新打開會顯示「已中斷」讓使用者重試。逐字稿完成前不寫進 Firestore，訪客才不會看到空的影片。 */
+const JOB_STORE = "videoJobs";
+const NEW_STORE = "newVideos";
+// state: queued | transcribing | saving | highlights | failed | interrupted
+try {
+  jobs = JSON.parse(localStorage.getItem(JOB_STORE) || "[]").map((j) => ({ ...j, state: "interrupted" }));
+  JSON.parse(localStorage.getItem(NEW_STORE) || "[]").forEach((id) => newVideoIds.add(id));
+} catch (e) {}
+function jobActive(j) { return ["queued", "transcribing", "saving", "highlights"].includes(j.state); }
+const saveJobs = () => {
+  try {
+    // 已經存檔、只剩挑重點的不用記：影片已經在資料庫裡，重點可以在影片頁補
+    localStorage.setItem(JOB_STORE, JSON.stringify(jobs.filter((j) => !j.docId).map(({ id, lang, videoId, title, origTitle }) => ({ id, lang, videoId, title, origTitle }))));
+    localStorage.setItem(NEW_STORE, JSON.stringify([...newVideoIds].slice(-50)));
+  } catch (e) {}
+};
+function jobStatus(j) { return ({
+  queued: "排隊中",
+  transcribing: `生成逐字稿中… ${fmtElapsed(Date.now() - (j.t0 || Date.now()))}${j.note ? `（${j.note}）` : ""}`,
+  saving: "儲存中…",
+  failed: `失敗：${j.error || ""}`,
+  interrupted: "已中斷（分頁被關閉或重新整理）",
+}[j.state] || ""); }
+// 影片列表最上面：還沒存檔的工作
+function jobRows() { return jobs.filter((j) => !j.docId && j.lang === lang).map((j) => `
+  <div class="jobrow${jobActive(j) ? "" : " stopped"}" data-job="${j.id}">
+    ${jobActive(j) ? `<span class="spin" aria-hidden="true"></span>` : `<span class="jobwarn" aria-hidden="true">!</span>`}
+    <div class="vname">${esc(j.title)}${j.origTitle ? `<span class="subtitle muted">${esc(j.origTitle)}</span>` : ""}
+      <div class="jobstat" role="status">${esc(jobStatus(j))}</div>
+    </div>
+    <div class="jobbtns">
+      ${jobActive(j) ? "" : `<button data-jobact="retry">重試</button>`}
+      ${j.state === "transcribing" || j.state === "saving" ? "" : `<button data-jobact="remove">移除</button>`}
+    </div>
+  </div>`).join(""); }
+function jobOfDoc(id) { return jobs.find((j) => j.docId === id); }
+const refreshJobs = () => { saveJobs(); if (page === "videos" && !viewing) render(); };
+// 每秒只更新計時文字，不重畫整個列表
+setInterval(() => {
+  for (const j of jobs) {
+    if (j.state !== "transcribing") continue;
+    const el = document.querySelector(`.jobrow[data-job="${j.id}"] .jobstat`);
+    if (el) el.textContent = jobStatus(j);
+  }
+}, 1000);
+
+function addJob(info) {
+  jobs.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, state: "queued", ...info });
+  refreshJobs();
+  runJobs();
+}
+let jobRunning = false;
+async function runJobs() {
+  if (jobRunning) return;
+  jobRunning = true;
+  try {
+    let job;
+    while ((job = jobs.find((j) => j.state === "queued"))) await runJob(job);
+  } finally {
+    jobRunning = false;
+  }
+}
+async function runJob(job) {
+  try {
+    job.state = "transcribing"; job.t0 = Date.now(); job.note = ""; job.error = "";
+    refreshJobs();
+    const { cues } = await transcribeYoutube({ videoId: job.videoId, lang: job.lang, onStatus: (s) => { job.note = s; } });
+    if (!cues.length) throw new Error(`沒有聽到${LANGS[job.lang].term}內容`);
+    if (!jobs.includes(job)) return; // 生成期間被移除
+    const data = {
+      lang: job.lang, title: job.title, origTitle: job.origTitle || "", url: `https://www.youtube.com/watch?v=${job.videoId}`,
+      videoId: job.videoId, cues, tags: [],
+    };
+    job.state = "saving";
+    refreshJobs();
+    const added = await addDoc(collection(db, "videos"), { ...data, createdAt: serverTimestamp() });
+    job.docId = added.id;
+    job.state = "highlights";
+    newVideoIds.add(added.id);
+    refreshJobs();
+    // 挑重點失敗不算整個工作失敗：影片已經可以看，重點可以在影片頁再按一次
+    const wait = extractHighlights({ cues, lang: job.lang, known: raw.cards.filter((c) => langOf(c) === job.lang).map((c) => c.thai) })
+      .then(async ({ words, patterns }) => {
+        const highlights = { words, patterns, skipped: [] };
+        await updateDoc(doc(db, "videos", added.id), { highlights });
+        return highlights;
+      })
+      .catch(() => null);
+    hlWaiting.set(added.id, wait);
+    await wait;
+    hlWaiting.delete(added.id);
+    jobs = jobs.filter((j) => j !== job);
+    refreshJobs();
+    toast(`「${job.title}」準備好了`, job.lang === lang ? { label: "打開", run: () => openVideoById(added.id) } : null);
+  } catch (err) {
+    job.state = "failed";
+    job.error = String(err.message || err).split("\n")[0];
+    refreshJobs();
+    toast(`「${job.title}」生成失敗`, null);
+  }
+}
+function openVideoById(id) {
+  const v = videos.find((x) => x.id === id);
+  if (!v) return;
+  if (page !== "videos") go("videos");
+  openVideo(v);
+}
+$("cards").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-jobact]");
+  const job = b && jobs.find((j) => j.id === b.closest(".jobrow").dataset.job);
+  if (!job) return;
+  if (b.dataset.jobact === "remove") jobs = jobs.filter((j) => j !== job);
+  else { job.state = "queued"; job.error = ""; }
+  refreshJobs();
+  runJobs();
+});
+// 還有工作在跑時關閉或重新整理分頁會中斷，先提醒
+addEventListener("beforeunload", (e) => { if (jobs.some(jobActive)) e.preventDefault(); });
+
+/* 畫面角落的小通知（背景工作完成時用） */
+let toastTimer = 0;
+function toast(text, action) {
+  const el = $("toast");
+  el.innerHTML = `<span>${esc(text)}</span>${action ? `<button data-t="run">${esc(action.label)}</button>` : ""}<button class="icon" data-t="close" title="關閉">✕</button>`;
+  el.hidden = false;
+  el.onclick = (e) => {
+    const t = e.target.closest("[data-t]")?.dataset.t;
+    if (!t) return;
+    el.hidden = true;
+    if (t === "run") action.run();
+  };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 12000);
+}
+
+let findLang = "";
+$("findBtn").onclick = () => {
+  if (readOnly()) return;
+  if (findLang !== lang) { findLang = lang; findPool = []; findShown = []; findRound = -1; loadPool(); } // 第一次打開或換語言：讀回上次存下來的候選
+  $("fYtKey").value = getYoutubeKey();
+  $("fGemKey").value = getGeminiKey();
+  $("fKeyBox").open = !getYoutubeKey() || !getGeminiKey();
+  $("fdlg").showModal();
+  if (!findShown.length) nextFindBatch(); else renderFind();
+};
+$("fMore").onclick = nextFindBatch;
+$("fClose").onclick = () => $("fdlg").close();
+$("fYtKey").onchange = () => setYoutubeKey($("fYtKey").value);
+$("fGemKey").onchange = () => setGeminiKey($("fGemKey").value);
+for (const id of ["fYtKey", "fGemKey"]) $(id).onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); nextFindBatch(); } };
+$("fList").onclick = (e) => {
+  const item = e.target.closest(".fitem");
+  if (item && e.target.closest('[data-act="use"]')) useFound(findShown[+item.dataset.i]);
 };
 
 /* ---------- 文章 ---------- */

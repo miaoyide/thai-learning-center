@@ -185,6 +185,7 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .keybox { margin:4px 0 10px; font-size:.9rem; color:var(--muted); }
 .keybox summary { cursor:pointer; width:fit-content; }
 .keybox a { color:var(--accent); }
+.keybox input, .keybox select { box-sizing:border-box; }
 .hint code { background:var(--code-bg); padding:.1em .4em; border-radius:4px; }
 
 /* 導覽列與頁面 */
@@ -545,3 +546,36 @@ button.say:not(:first-child) { margin-left:.3em; }
 /* 說明／文章裡的羅馬拼音：不傾斜、用拼音色、略小（參考 ThaiPod101 的排版）；標題裡的拼音維持灰色、同字級 */
 .detail em.rom { font-style:normal; color:var(--roman); font-size:.92em; }
 .detail :is(h1, h2, h3, h4, h5, h6) em.rom { color:var(--muted); font-size:1em; }
+
+/* ---------- 找影片 ---------- */
+dialog.finddlg { width:min(720px, 94vw); }
+.finddlg > form > .hint { margin:0 0 10px; font-size:.9rem; color:var(--muted); white-space:pre-line; min-height:1.4em; }
+.fitem { display:grid; grid-template-columns:160px minmax(0,1fr) auto; gap:12px; align-items:center; padding:10px 0; border-top:1px solid var(--border); }
+.fitem img { width:160px; aspect-ratio:16/9; object-fit:cover; border-radius:8px; background:var(--detail-bg); }
+.ftitle { font-weight:600; }
+.forig, .fmeta { font-size:.85rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fbtns { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:.85rem; }
+.fbtns a { color:var(--accent); }
+@media (max-width:600px) {
+  .fitem { grid-template-columns:110px minmax(0,1fr); }
+  .fitem img { width:110px; }
+  .fbtns { grid-column:1 / -1; flex-direction:row; justify-content:flex-end; }
+}
+.hlbtns { display:flex; flex-direction:column; gap:2px; }
+.hl.busy { opacity:.45; pointer-events:none; }
+
+/* ---------- 背景生成中的影片（影片列表最上面）與完成通知 ---------- */
+.jobrow { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:4px 14px; padding:10px 15px; border-bottom:1px solid var(--border); }
+.jobrow .vname { min-width:0; }
+.jobstat { font-size:.85rem; font-weight:400; color:var(--muted); }
+.jobrow.stopped .jobstat { color:var(--weak); }
+.jobbtns { display:flex; gap:6px; }
+.jobbtns button { padding:3px 10px; font-size:.85rem; }
+.spin { width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .9s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .spin { animation-duration:3s; } }
+.jobwarn { width:18px; height:18px; border-radius:50%; background:var(--weak); color:#fff; font-size:.8rem; font-weight:700; display:grid; place-items:center; }
+.newtag { display:inline-block; margin-right:.5em; padding:0 .45em; border-radius:6px; background:var(--accent); color:var(--on-accent); font-size:.75rem; font-weight:600; vertical-align:.1em; }
+#toast { position:fixed; right:20px; bottom:20px; z-index:60; display:flex; align-items:center; gap:10px; max-width:min(420px, calc(100vw - 40px)); padding:10px 12px 10px 16px; background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.28); }
+#toast[hidden] { display:none; }
+#toast span { min-width:0; }

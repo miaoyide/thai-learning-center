@@ -49,6 +49,7 @@
       <input id="search">
       <button id="importBtn" title="一次貼上多筆資料">匯入</button>
       <button id="smartBtn" title="輸入單字或主題生成提示詞，並把 AI 的完整回覆自動拆成欄位">智慧貼上</button>
+      <button id="findBtn" title="自動找 3–5 分鐘的日常口語影片，選一部就會生成逐字稿與本集重點" hidden>找影片</button>
       <button id="addBtn" title="快捷鍵：Alt+N">＋ 新增</button>
       <div class="keytip" id="keyTip">
         <button type="button" id="keyTipBtn" class="keytipbtn" aria-label="快捷鍵說明" aria-expanded="false">?</button>
@@ -203,6 +204,32 @@
     <div class="row">
       <button type="button" id="saCancel">取消</button>
       <button type="submit" id="saSave" disabled>新增文章</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 畫面角落的小通知：背景生成的影片完成時出現 -->
+<div id="toast" role="status" hidden></div>
+
+<!-- 找影片：系統用 YouTube 搜尋找候選，選一部就在背景生成逐字稿、存檔、挑出本集重點 -->
+<dialog id="fdlg" class="finddlg">
+  <form method="dialog">
+    <h2>找影片</h2>
+    <p class="hint" id="fMsg" role="status"></p>
+    <div id="fList"></div>
+    <details id="fKeyBox" class="keybox">
+      <summary>金鑰設定</summary>
+      <label>YouTube Data API 金鑰（用來搜尋影片）
+        <input id="fYtKey" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Gemini API 金鑰（用來翻譯標題、生成逐字稿）
+        <input id="fGemKey" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="hint">兩組金鑰都只存在這台裝置的瀏覽器。YouTube 金鑰要在 <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a> 啟用「YouTube Data API v3」後建立；請不要設定「HTTP 參照網址」限制，否則這個網站會被擋下。</p>
+    </details>
+    <div class="row">
+      <button type="button" id="fMore">換一批</button>
+      <button type="button" id="fClose">關閉</button>
     </div>
   </form>
 </dialog>

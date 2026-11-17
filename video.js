@@ -18,7 +18,7 @@ const LEAD = 0;
 const savedRate = () => { try { return +localStorage.getItem("videoRate"); } catch { return 0; } };
 
 // 在 container 內顯示影片 + 逐句字幕。回傳 destroy()。
-// hl（選填）：本集重點 { canEdit, has(text), add(kind, item), generate(onStatus), auto }
+// hl（選填）：本集重點 { canEdit, has(text), add(kind, item), swap(kind, index), generate(onStatus), auto, wait }
 export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl }) {
   const origin = encodeURIComponent(location.origin);
   container.innerHTML = `
@@ -60,7 +60,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
         </div>`).join("")}
     </div>
     </div>
-    ${hl ? `<details class="vhl" ${video.highlights || hl.auto ? "open" : ""}><summary>本集重點</summary><div class="hlbody"></div></details>` : ""}`;
+    ${hl ? `<details class="vhl" ${video.highlights || hl.auto || hl.wait ? "open" : ""}><summary>本集重點</summary><div class="hlbody"></div></details>` : ""}`;
 
   const cueEls = [...container.querySelectorAll(".cue")];
   let player = null;
@@ -149,9 +149,14 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     <div class="thai">${sayBtn(e.thai)}${esc(e.thai)}</div>
     ${e.roman ? `<div class="roman">${esc(e.roman)}</div>` : ""}
     ${e.english ? `<div class="english">${esc(e.english)}</div>` : ""}`;
-  const addBtn = (it) => (!hl.canEdit ? "" : hl.has(it.thai)
-    ? `<button class="icon" disabled title="已在字卡裡">✓</button>`
-    : `<button class="icon" data-act="add" title="加入字卡">${ICON.plus}</button>`);
+  let swapping = ""; // 正在換的那一項，例如 "words:3"
+  const addBtn = (it) => (!hl.canEdit ? "" : `<div class="hlbtns">
+    ${hl.has(it.thai)
+      ? `<button class="icon" disabled title="已在字卡裡">✓</button>`
+      : `<button class="icon" data-act="add" title="加入字卡">${ICON.plus}</button>`}
+    <button class="icon" data-act="swap" title="換一個：這個我會了或不需要" ${swapping ? "disabled" : ""}>${ICON.swap}</button>
+  </div>`);
+  const rowCls = (k, i) => (swapping === `${k}:${i}` ? " busy" : "");
   function renderHl() {
     if (!hlBody) return;
     const h = video.highlights;
@@ -161,13 +166,13 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     hlBody.innerHTML = `
       ${words.length ? `<h3>單字 <small>${words.length}</small></h3>
         <div class="hlwords">${words.map((w, i) => `
-          <div class="hl" data-k="words" data-i="${i}">
+          <div class="hl${rowCls("words", i)}" data-k="words" data-i="${i}">
             <div class="cwords">${exHtml(w)}${w.note ? `<div class="hlnote">${esc(w.note)}</div>` : ""}</div>
             ${addBtn(w)}
           </div>`).join("")}</div>` : ""}
       ${patterns.length ? `<h3>常用句型 <small>${patterns.length}</small></h3>
         ${patterns.map((p, i) => `
-          <div class="hl hlpat" data-k="patterns" data-i="${i}">
+          <div class="hl hlpat${rowCls("patterns", i)}" data-k="patterns" data-i="${i}">
             <div class="cwords">${exHtml(p)}
               ${p.explain ? `<div class="hlnote">${esc(p.explain)}</div>` : ""}
               ${p.examples?.length ? `<div class="hlex">${p.examples.map((e) => `<div class="hlexi">${exHtml(e)}</div>`).join("")}</div>` : ""}
@@ -218,6 +223,16 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
         try { await hl.add(row.dataset.k, it); hlMsg = ""; } catch (err) { hlMsg = "加入失敗：" + err.message; }
         return renderHl();
       }
+      if (act === "swap") {
+        if (swapping) return;
+        swapping = `${row.dataset.k}:${row.dataset.i}`;
+        hlMsg = `正在換掉「${it.thai}」…`;
+        renderHl();
+        try { video.highlights = await hl.swap(row.dataset.k, +row.dataset.i); hlMsg = ""; } catch (err) { hlMsg = "換一個失敗：" + err.message; }
+        swapping = "";
+        if (!destroyed) renderHl();
+        return;
+      }
       // 點一下：跳到影片裡出現這個詞／句型的那一句，播完那一句就停
       if (getSelection().toString()) return;
       const keys = [it.examples?.[0]?.thai, it.thai].filter(Boolean).map(norm);
@@ -225,7 +240,15 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
       if (hit) jump(video.cues.indexOf(hit), true);
     };
     renderHl();
-    if (hl.auto && hl.canEdit && !video.highlights) genHl();
+    if (hl.wait && !video.highlights) {
+      // 背景工作還在替這部影片挑重點：顯示進行中，等它完成直接顯示結果
+      hlBusy = true; hlMsg = "背景正在挑選本集重點…";
+      renderHl();
+      hl.wait.then((h) => { if (h && !video.highlights) video.highlights = h; }).finally(() => {
+        hlBusy = false; hlMsg = "";
+        if (!destroyed) renderHl();
+      });
+    } else if (hl.auto && hl.canEdit && !video.highlights) genHl();
   }
 
   // 讓正在播的那一句保持在視線內。寬螢幕時字幕有自己的捲動區，只捲那一區，
