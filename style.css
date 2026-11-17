@@ -82,6 +82,7 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .vline { display:grid; grid-template-columns:auto minmax(0,1fr) 4em; align-items:center; gap:4px 14px; }
 .vname { font-weight:600; }
 .vhead { display:flex; align-items:center; gap:12px; padding:8px 0; }
+.vhead button { flex:none; white-space:nowrap; }
 .vtitle { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vplayer { position:sticky; top:0; z-index:5; background:var(--bg); padding-bottom:8px; }
 .vplayer iframe { display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:10px; background:#000; }
@@ -110,19 +111,24 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .hlex .thai { font-size:1rem; }
 .hlbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
 .hlmsg { margin:0; font-size:.85rem; color:var(--muted); }
+/* 窄螢幕：影片 → 本集重點 → 字幕。.vside 不產生外框，用 order 把本集重點排到字幕前面 */
+#player:not([hidden]) { display:flex; flex-direction:column; }
 .vside { display:contents; }
-/* 寬螢幕（筆電、桌機）：左欄影片＋本集重點固定在畫面上，右欄字幕跟著頁面捲動，把兩側留白用起來 */
+.vplayer { order:1; }
+.vhl { order:2; }
+.cues { order:3; }
+/* 寬螢幕（筆電、桌機）：左欄是影片＋字幕（字幕只佔一小塊，自己捲動、跟著播放走），固定在畫面上；
+   右欄整欄給本集重點，跟著頁面捲動。影片刻意縮小，把版面留給文字 */
 @media (min-width:1100px) {
   main:has(> #player:not([hidden])) { max-width:1680px; padding:8px 24px 16px; }
-  #player:not([hidden]) { display:grid; grid-template-columns:minmax(0, 1.35fr) minmax(380px, 1fr); gap:0 28px; align-items:start; }
+  #player:not([hidden]) { display:grid; grid-template-columns:minmax(400px, .8fr) minmax(0, 1.2fr); gap:0 28px; align-items:start; }
   .vside { display:flex; flex-direction:column; position:sticky; top:0; height:100vh; padding-bottom:12px; box-sizing:border-box; }
   .vplayer { position:static; flex:none; }
-  .vplayer iframe { max-height:58vh; }
-  .vhl { flex:1; min-height:0; overflow-y:auto; margin-bottom:0; }
-  .vhl > summary { position:sticky; top:0; z-index:1; background:var(--bg); border-radius:10px; }
-  .vhl:not([open]) { flex:none; }
-  .cues { border-top:none; margin-top:8px; }
-  .cue { scroll-margin-top:16px; }
+  .vplayer iframe { width:min(100%, calc(40vh * 16 / 9)); margin:0 auto; }
+  .cues { flex:1; min-height:0; overflow-y:auto; border:1px solid var(--border); border-radius:10px; }
+  .cue { scroll-margin-top:0; padding:8px 12px; }
+  .cue:last-child { border-bottom:none; }
+  .vhl { margin:8px 0 0; }
 }
 .cue.on { background:var(--detail-bg); box-shadow:inset 3px 0 0 var(--accent); }
 .ctime { color:var(--muted); font-size:.8rem; padding-top:.45em; font-variant-numeric:tabular-nums; }

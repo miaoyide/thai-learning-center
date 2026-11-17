@@ -13,7 +13,8 @@ function loadYT() {
 }
 
 const RATES = [0.5, 0.75, 1];
-const LEAD = 0.3; // 字幕時間只精確到秒，跳到某一句時提前一點，才不會切掉第一個字
+// 跳到某一句時提前的秒數。實測提前 0.3 秒會把上一句結尾的語助詞（นะครับ 之類）帶進來，所以不提前
+const LEAD = 0;
 const savedRate = () => { try { return +localStorage.getItem("videoRate"); } catch { return 0; } };
 
 // 在 container 內顯示影片 + 逐句字幕。回傳 destroy()。
@@ -21,7 +22,7 @@ const savedRate = () => { try { return +localStorage.getItem("videoRate"); } cat
 export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl }) {
   const origin = encodeURIComponent(location.origin);
   container.innerHTML = `
-    <!-- .vside：寬螢幕時是左欄（影片＋本集重點），字幕在右欄；窄螢幕時不產生外框（display:contents） -->
+    <!-- .vside：寬螢幕時是左欄（影片＋字幕），本集重點在右欄；窄螢幕時不產生外框（display:contents），順序由 CSS order 決定 -->
     <div class="vside">
     <div class="vplayer">
       <div class="vhead">
@@ -43,8 +44,6 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
         <span class="vkeys" title="點一下影片以外的地方，快捷鍵才會生效">空白鍵 播放／暫停</span>
       </div>
     </div>
-    ${hl ? `<details class="vhl" ${video.highlights || hl.auto ? "open" : ""}><summary>本集重點</summary><div class="hlbody"></div></details>` : ""}
-    </div>
     <div class="cues">
       ${video.cues.map((c, i) => `
         <div class="cue" data-i="${i}">
@@ -59,7 +58,9 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
             <button class="icon" data-act="add" title="加入字卡">${ICON.plus}</button>
           </div>
         </div>`).join("")}
-    </div>`;
+    </div>
+    </div>
+    ${hl ? `<details class="vhl" ${video.highlights || hl.auto ? "open" : ""}><summary>本集重點</summary><div class="hlbody"></div></details>` : ""}`;
 
   const cueEls = [...container.querySelectorAll(".cue")];
   let player = null;
@@ -142,8 +143,10 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
   const norm = (t) => t.replace(/[\s…]+|\.{3}/g, "").toLowerCase();
   let hlBusy = false;
   let hlMsg = "";
+  // 發音按鈕沿用字卡說明裡的 .say（app.js 統一處理點擊）；句型裡的「…」不念
+  const sayBtn = (t) => `<button type="button" class="say" title="發音" data-say="${esc(t.replace(/…|\.{3}/g, " ").trim())}">${ICON.play}</button>`;
   const exHtml = (e) => `
-    <div class="thai">${esc(e.thai)}</div>
+    <div class="thai">${sayBtn(e.thai)}${esc(e.thai)}</div>
     ${e.roman ? `<div class="roman">${esc(e.roman)}</div>` : ""}
     ${e.english ? `<div class="english">${esc(e.english)}</div>` : ""}`;
   const addBtn = (it) => (!hl.canEdit ? "" : hl.has(it.thai)
@@ -209,7 +212,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
         return renderHl();
       }
       const row = e.target.closest(".hl");
-      if (!row) return;
+      if (!row || e.target.closest(".say")) return; // 發音按鈕只念出來，不跳影片
       const it = video.highlights[row.dataset.k][+row.dataset.i];
       if (act === "add") {
         try { await hl.add(row.dataset.k, it); hlMsg = ""; } catch (err) { hlMsg = "加入失敗：" + err.message; }
@@ -224,6 +227,15 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     renderHl();
     if (hl.auto && hl.canEdit && !video.highlights) genHl();
   }
+
+  // 讓正在播的那一句保持在視線內。寬螢幕時字幕有自己的捲動區，只捲那一區，
+  // 不能用 scrollIntoView（它會連整個頁面一起捲，打斷正在右欄看本集重點的人）
+  const cueBox = container.querySelector(".cues");
+  const showCue = (el) => {
+    if (getComputedStyle(cueBox).overflowY === "visible") return el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const top = cueBox.scrollTop + el.getBoundingClientRect().top - cueBox.getBoundingClientRect().top;
+    cueBox.scrollTo({ top: top - (cueBox.clientHeight - el.offsetHeight) / 2, behavior: "smooth" });
+  };
 
   const timer = setInterval(() => {
     if (!ready || destroyed) return;
@@ -246,7 +258,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     if (idx !== active) {
       cueEls[active]?.classList.remove("on");
       cueEls[idx]?.classList.add("on");
-      cueEls[idx]?.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (cueEls[idx]) showCue(cueEls[idx]);
       active = idx;
     }
   }, 100);

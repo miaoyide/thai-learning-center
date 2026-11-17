@@ -29,12 +29,12 @@ function buildPrompt(lang) {
 - "meaning": a natural translation in Traditional Chinese (繁體中文).`;
   return `Transcribe the spoken ${spoken} in this video for a language learner.
 
-Return JSON only, in this shape: {"cues":[{"t":"M:SS","text":"","roman":"","meaning":""}]}
+Return JSON only, in this shape: {"cues":[{"t":"M:SS.s","text":"","roman":"","meaning":""}]}
 
 Rules:
 - Listen to the audio and transcribe what is actually said, verbatim. Do not summarise, and do not skip any part of the video, from the first word to the last.
 - One cue per sentence or short phrase (roughly 2-8 seconds of speech), in order.
-- "t": the moment the cue starts being spoken, as M:SS (or H:MM:SS past one hour), measured from the start of the video.
+- "t": the moment the first word of the cue starts being spoken, measured from the start of the video, as M:SS.s with tenths of a second (for example 0:12.4; H:MM:SS.s past one hour). Never earlier than the end of the previous cue: sentence-final particles${lang === "th" ? " such as นะครับ / ค่ะ" : ""} belong to the cue they end, not to the start of the next one.
 ${fields}
 - Skip music, sound effects and speech in other languages. If nothing in ${spoken} is spoken, return {"cues":[]}.
 - No line breaks inside any value, no Markdown, no commentary.`;
