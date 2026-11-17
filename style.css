@@ -85,8 +85,14 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .vtitle { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vplayer { position:sticky; top:0; z-index:5; background:var(--bg); padding-bottom:8px; }
 .vplayer iframe { display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:10px; background:#000; }
+.vctl { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding-top:8px; font-size:.9rem; }
+.vctl button { padding:4px 10px; }
+.vctl button.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+.vrates { display:inline-flex; gap:2px; margin-left:8px; }
+.vkeys { margin-left:auto; font-size:.8rem; color:var(--muted); }
+@media (max-width:700px), (hover:none) { .vkeys { display:none; } }
 .cues { border-top:1px solid var(--border); }
-.cue { display:grid; grid-template-columns:3.2em minmax(0,1fr) auto; gap:4px 12px; align-items:start; padding:10px 15px; border-bottom:1px solid var(--border); cursor:pointer; scroll-margin-top:calc(min(56.25vw, 488px) + 70px); }
+.cue { display:grid; grid-template-columns:3.2em minmax(0,1fr) auto; gap:4px 12px; align-items:start; padding:10px 15px; border-bottom:1px solid var(--border); cursor:pointer; scroll-margin-top:calc(min(56.25vw, 488px) + 115px); }
 .cue:hover { background:var(--hover); }
 /* 本集重點：單字與常用句型 */
 .vhl { margin:4px 0 12px; border:1px solid var(--border); border-radius:10px; }
@@ -104,6 +110,20 @@ input[type=checkbox] { width:auto; margin:0; accent-color:var(--accent); cursor:
 .hlex .thai { font-size:1rem; }
 .hlbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
 .hlmsg { margin:0; font-size:.85rem; color:var(--muted); }
+.vside { display:contents; }
+/* 寬螢幕（筆電、桌機）：左欄影片＋本集重點固定在畫面上，右欄字幕跟著頁面捲動，把兩側留白用起來 */
+@media (min-width:1100px) {
+  main:has(> #player:not([hidden])) { max-width:1680px; padding:8px 24px 16px; }
+  #player:not([hidden]) { display:grid; grid-template-columns:minmax(0, 1.35fr) minmax(380px, 1fr); gap:0 28px; align-items:start; }
+  .vside { display:flex; flex-direction:column; position:sticky; top:0; height:100vh; padding-bottom:12px; box-sizing:border-box; }
+  .vplayer { position:static; flex:none; }
+  .vplayer iframe { max-height:58vh; }
+  .vhl { flex:1; min-height:0; overflow-y:auto; margin-bottom:0; }
+  .vhl > summary { position:sticky; top:0; z-index:1; background:var(--bg); border-radius:10px; }
+  .vhl:not([open]) { flex:none; }
+  .cues { border-top:none; margin-top:8px; }
+  .cue { scroll-margin-top:16px; }
+}
 .cue.on { background:var(--detail-bg); box-shadow:inset 3px 0 0 var(--accent); }
 .ctime { color:var(--muted); font-size:.8rem; padding-top:.45em; font-variant-numeric:tabular-nums; }
 .cbtns { display:flex; gap:2px; }

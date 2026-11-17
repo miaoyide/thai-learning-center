@@ -12,11 +12,17 @@ function loadYT() {
   }));
 }
 
+const RATES = [0.5, 0.75, 1];
+const LEAD = 0.3; // 字幕時間只精確到秒，跳到某一句時提前一點，才不會切掉第一個字
+const savedRate = () => { try { return +localStorage.getItem("videoRate"); } catch { return 0; } };
+
 // 在 container 內顯示影片 + 逐句字幕。回傳 destroy()。
 // hl（選填）：本集重點 { canEdit, has(text), add(kind, item), generate(onStatus), auto }
 export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl }) {
   const origin = encodeURIComponent(location.origin);
   container.innerHTML = `
+    <!-- .vside：寬螢幕時是左欄（影片＋本集重點），字幕在右欄；窄螢幕時不產生外框（display:contents） -->
+    <div class="vside">
     <div class="vplayer">
       <div class="vhead">
         <button id="vBack">← 返回</button>
@@ -26,8 +32,19 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
       <iframe id="ytFrame" referrerpolicy="strict-origin-when-cross-origin"
         src="https://www.youtube.com/embed/${video.videoId}?enablejsapi=1&playsinline=1&rel=0&origin=${origin}"
         allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      <div class="vctl">
+        <button data-ctl="prev" title="上一句（←）">上一句</button>
+        <button data-ctl="again" title="重聽這一句（R）">重聽</button>
+        <button data-ctl="next" title="下一句（→）">下一句</button>
+        <button data-ctl="loop" title="單句循環：一直重複目前這一句（L）" aria-pressed="false">單句循環</button>
+        <span class="vrates" role="group" aria-label="播放速度">
+          ${RATES.map((r) => `<button data-rate="${r}" title="播放速度 ${r} 倍">${r}×</button>`).join("")}
+        </span>
+        <span class="vkeys" title="點一下影片以外的地方，快捷鍵才會生效">空白鍵 播放／暫停</span>
+      </div>
     </div>
     ${hl ? `<details class="vhl" ${video.highlights || hl.auto ? "open" : ""}><summary>本集重點</summary><div class="hlbody"></div></details>` : ""}
+    </div>
     <div class="cues">
       ${video.cues.map((c, i) => `
         <div class="cue" data-i="${i}">
@@ -50,8 +67,60 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
   let active = -1;
   let segEnd = null;
   let destroyed = false;
+  let pending = -1; // 剛跳到的那一句：提前量還沒播完之前，畫面先標示它而不是前一句
+  let pendingAt = 0;
+  let loopOn = false;
+  let rate = RATES.includes(savedRate()) ? savedRate() : 1;
 
-  const seek = (t) => { if (ready) { player.seekTo(t, true); player.playVideo(); } };
+  const seek = (t) => { if (ready) { player.seekTo(Math.max(0, t - LEAD), true); player.playVideo(); } };
+  // 跳到第 i 句；once＝播完這一句就停
+  const jump = (i, once = false) => {
+    const c = video.cues[i];
+    if (!c || !ready) return;
+    pending = i;
+    pendingAt = Date.now();
+    segEnd = once ? c.end : null;
+    seek(c.start);
+  };
+
+  /* ---------- 播放控制：上一句／重聽／下一句、單句循環、速度、快捷鍵 ---------- */
+  const ctl = container.querySelector(".vctl");
+  const loopBtn = ctl.querySelector('[data-ctl="loop"]');
+  const setLoop = (on) => {
+    loopOn = on;
+    loopBtn.classList.toggle("on", on);
+    loopBtn.setAttribute("aria-pressed", on);
+  };
+  const setRate = (r) => {
+    rate = r;
+    ctl.querySelectorAll("[data-rate]").forEach((b) => b.classList.toggle("on", +b.dataset.rate === r));
+    try { localStorage.setItem("videoRate", r); } catch (e) {}
+    if (ready) player.setPlaybackRate(r);
+  };
+  const act = {
+    prev: () => jump(Math.max(0, active - 1)),
+    again: () => jump(Math.max(0, active)),
+    next: () => jump(Math.min(video.cues.length - 1, active + 1)),
+    loop: () => setLoop(!loopOn),
+    toggle: () => { if (ready) player.getPlayerState() === 1 ? player.pauseVideo() : player.playVideo(); },
+  };
+  ctl.onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.rate) setRate(+b.dataset.rate);
+    else act[b.dataset.ctl]?.();
+    b.blur(); // 不留焦點，接下來按空白鍵才是播放／暫停，而不是再按一次這顆按鈕
+  };
+  setRate(rate);
+  const KEYS = { " ": "toggle", ArrowLeft: "prev", ArrowRight: "next", r: "again", R: "again", l: "loop", L: "loop" };
+  const onKey = (e) => {
+    const name = KEYS[e.key];
+    if (!name || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+    if (document.querySelector("dialog[open]") || e.target.closest?.("input, textarea, select, button, summary, [contenteditable]")) return;
+    e.preventDefault();
+    act[name]();
+  };
+  document.addEventListener("keydown", onKey);
 
   container.querySelector("#vBack").onclick = onBack;
   container.querySelector(".cues").onclick = async (e) => {
@@ -65,8 +134,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
       return;
     }
     if (getSelection().toString()) return;
-    segEnd = btn?.dataset.act === "seg" ? c.end : null;
-    seek(c.start);
+    jump(+el.dataset.i, btn?.dataset.act === "seg");
   };
 
   /* ---------- 本集重點：單字與句型 ---------- */
@@ -151,7 +219,7 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
       if (getSelection().toString()) return;
       const keys = [it.examples?.[0]?.thai, it.thai].filter(Boolean).map(norm);
       const hit = video.cues.find((c) => keys.some((k) => norm(c.thai).includes(k)));
-      if (hit) { segEnd = hit.end; seek(hit.start); }
+      if (hit) jump(video.cues.indexOf(hit), true);
     };
     renderHl();
     if (hl.auto && hl.canEdit && !video.highlights) genHl();
@@ -160,25 +228,38 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
   const timer = setInterval(() => {
     if (!ready || destroyed) return;
     const t = player.getCurrentTime();
-    if (segEnd != null && t >= segEnd) { player.pauseVideo(); segEnd = null; }
+    // 單句循環：目前這一句播到結尾就跳回開頭（只在剛好播過結尾時處理，使用者自己拖進度條跳走就不拉回來）
     let idx = -1;
     for (let i = 0; i < video.cues.length && video.cues[i].start <= t + 0.05; i++) idx = i;
+    if (pending >= 0) {
+      // 剛跳轉完的一小段時間播放器回報的可能還是舊位置，之後則還在提前量裡：這兩段都先標示目標那一句
+      const ps = video.cues[pending].start;
+      if (Date.now() - pendingAt < 800 || (t < ps && t >= ps - LEAD - 0.5)) idx = pending;
+      else pending = -1;
+    }
+    if (pending < 0) {
+      // 單句循環：目前這一句播到結尾就跳回開頭（只在剛好播過結尾時處理，使用者自己拖進度條跳走就不拉回來）
+      const cur = video.cues[active];
+      if (loopOn && cur && t >= cur.end - 0.1 && t < cur.end + 1) return jump(active);
+      if (segEnd != null && t >= segEnd - 0.1) { player.pauseVideo(); segEnd = null; return; }
+    }
     if (idx !== active) {
       cueEls[active]?.classList.remove("on");
       cueEls[idx]?.classList.add("on");
       cueEls[idx]?.scrollIntoView({ block: "center", behavior: "smooth" });
       active = idx;
     }
-  }, 200);
+  }, 100);
 
   loadYT().then(() => {
     if (destroyed) return;
-    player = new YT.Player("ytFrame", { events: { onReady: () => { ready = true; } } });
+    player = new YT.Player("ytFrame", { events: { onReady: () => { ready = true; player.setPlaybackRate(rate); } } });
   });
 
   return () => {
     destroyed = true;
     clearInterval(timer);
+    document.removeEventListener("keydown", onKey);
     try { player?.destroy(); } catch (e) {}
     container.innerHTML = "";
   };
