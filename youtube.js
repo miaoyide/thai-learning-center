@@ -74,6 +74,17 @@ function seconds(iso = "") {
 
 const decode = (s = "") => { const t = document.createElement("textarea"); t.innerHTML = s; return t.value; };
 
+// 查一部影片的片長（秒）。沒有金鑰或查不到時回傳 0（只用來檢查逐字稿有沒有停太早，查不到不影響生成）
+export async function getVideoSeconds(videoId, key = getYoutubeKey()) {
+  if (!key || !videoId) return 0;
+  try {
+    const d = await get("videos", { part: "contentDetails", id: videoId }, key);
+    return seconds(d.items?.[0]?.contentDetails?.duration);
+  } catch {
+    return 0;
+  }
+}
+
 // 用第 round 組關鍵字搜尋，回傳 3–5 分鐘左右、可嵌入播放、還沒看過的影片
 // [{ videoId, title, channel, description, seconds, thumb }]
 export async function findCandidates({ lang, round = 0, exclude = [], minSec = 170, maxSec = 330, key = getYoutubeKey(), signal }) {

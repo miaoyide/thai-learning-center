@@ -18,7 +18,8 @@ export const getGeminiModel = () => (GEMINI_MODELS.includes(store.get(MODEL_STOR
 export const setGeminiModel = (v) => store.set(MODEL_STORE, v);
 
 // lang: "th"（泰文＋拼音＋英文）或 "en"（英文＋繁體中文）
-function buildPrompt(lang) {
+// duration：片長（秒，0＝不知道）；from：只轉寫這個時間點之後（接續補後半段時用）
+function buildPrompt(lang, duration = 0, from = 0) {
   const spoken = lang === "th" ? "Thai" : "English";
   const fields = lang === "th"
     ? `- "text": the sentence exactly as spoken, in Thai script.
@@ -37,7 +38,9 @@ Rules:
 - "t": the moment the first word of the cue starts being spoken, measured from the start of the video, as M:SS.s with tenths of a second (for example 0:12.4; H:MM:SS.s past one hour). Never earlier than the end of the previous cue: sentence-final particles${lang === "th" ? " such as นะครับ / ค่ะ" : ""} belong to the cue they end, not to the start of the next one.
 ${fields}
 - Skip music, sound effects and speech in other languages. If nothing in ${spoken} is spoken, return {"cues":[]}.
-- No line breaks inside any value, no Markdown, no commentary.`;
+- No line breaks inside any value, no Markdown, no commentary.${duration ? `
+- The video is ${fmtTime(Math.round(duration))} long. Keep transcribing until the speech actually ends; the last cue should be close to the end of the video. Do not stop after the first part.` : ""}${from ? `
+- The part before ${fmtTime(Math.floor(from))} is already transcribed. Only transcribe speech from ${fmtTime(Math.floor(from))} onward. Timestamps are still measured from the start of the full video.` : ""}`;
 }
 
 const SCHEMA = {
@@ -147,12 +150,14 @@ async function ask({ key, model, input, minimalInput = input, schema, signal, on
     } catch (e) {
       // 選用參數不被接受時（API 改版、模型不支援），退回最基本的請求；格式要求已經寫在 prompt 裡
       if (e.status !== 400 || e.badKey) throw e;
+      minimal = true;
       return post(key, { model: m, store: false, input: minimalInput }, signal);
     }
   };
   // 模型塞車（5xx）很常見而且通常很短暫：同一個模型等一下再試，還是不行就換下一個模型
   const models = [model, ...GEMINI_MODELS.filter((m) => m !== model)];
   let res, used, lastErr;
+  let minimal = false; // 是否退回了最基本的請求（選用參數，例如影片剪輯，沒有生效）
   for (const m of models) {
     for (const wait of [0, 5, 15]) {
       if (wait) { onStatus?.(`${m} 忙線中，${wait} 秒後重試`); await sleep(wait * 1000, signal); }
@@ -170,27 +175,49 @@ async function ask({ key, model, input, minimalInput = input, schema, signal, on
   }
   const text = outputText(res);
   if (!text.trim()) throw new Error(emptyMsg || "Gemini 沒有回傳內容");
-  return { text, status: res.status, model: used };
+  return { text, status: res.status, model: used, minimal };
 }
 
 // 回傳 { cues: [{start, thai, roman, english}], model, truncated, lastTime }
-export async function transcribeYoutube({ videoId, lang, key = getGeminiKey(), model = getGeminiModel(), signal, onStatus }) {
+// duration（秒，選填）：知道片長時會告訴模型；模型有時只轉寫前一段就停（實際遇過 3:24 的影片只到 0:41），
+// 這時從最後一句接著再要後半段，最多補 4 次
+export async function transcribeYoutube({ videoId, lang, duration = 0, key = getGeminiKey(), model = getGeminiModel(), signal, onStatus }) {
   const video = { type: "video", uri: `https://www.youtube.com/watch?v=${videoId}` };
-  const text = { type: "text", text: buildPrompt(lang) };
-  const res = await ask({
-    key, model, signal, onStatus, schema: SCHEMA,
-    // 逐字稿只需要聲音，畫面用低解析度省 token（能處理的影片也比較長）
-    input: [text, { ...video, resolution: "low" }],
-    minimalInput: [text, video],
-    emptyMsg: "Gemini 沒有回傳內容（影片可能不是公開的、太長，或被內容政策擋下）",
-  });
-  const { items, truncated } = parseCuesJson(res.text);
-  const cues = toCues(items);
+  const once = async (from) => {
+    const text = { type: "text", text: buildPrompt(lang, duration, from) };
+    // 接續時只送後半段的影片；不支援剪輯時 ask() 會退回整部影片，靠 prompt 與下面的過濾去掉重複
+    const clip = from ? { processing: { type: "static", start_offset: `${Math.floor(from)}s` } } : {};
+    const res = await ask({
+      key, model, signal, schema: SCHEMA,
+      onStatus: (s) => onStatus?.(s || (from ? `補後半段（從 ${fmtTime(Math.floor(from))} 開始）` : "")),
+      // 逐字稿只需要聲音，畫面用低解析度省 token（能處理的影片也比較長）
+      input: [text, { ...video, resolution: "low", ...clip }],
+      minimalInput: [text, video],
+      emptyMsg: "Gemini 沒有回傳內容（影片可能不是公開的、太長，或被內容政策擋下）",
+    });
+    const { items, truncated } = parseCuesJson(res.text);
+    let cues = toCues(items);
+    // 剪輯後的時間有可能從 0 起算：第一句明顯早於起點，就整批加上起點
+    if (from >= 10 && !res.minimal && cues.length && cues[0].start < from - 5) cues = cues.map((c) => ({ ...c, start: c.start + from }));
+    return { cues, model: res.model, truncated: truncated || res.status === "incomplete" || res.status === "requires_continuation" };
+  };
+  const first = await once(0);
+  let { cues, truncated, model: used } = first;
+  const short = () => duration && cues.length && cues.at(-1).start < duration - 20;
+  for (let round = 0; round < 4 && short(); round++) {
+    const last = cues.at(-1).start;
+    const more = await once(last);
+    const add = more.cues.filter((c) => c.start > last + 0.5);
+    if (!add.length) break;
+    cues = [...cues, ...add];
+    truncated = more.truncated;
+    used = more.model;
+  }
   return {
     cues,
-    model: res.model,
-    truncated: truncated || res.status === "incomplete" || res.status === "requires_continuation",
-    lastTime: cues.length ? fmtTime(cues.at(-1).start) : "",
+    model: used,
+    truncated: truncated || !!short(),
+    lastTime: cues.length ? fmtTime(Math.floor(cues.at(-1).start)) : "",
   };
 }
 
@@ -201,7 +228,14 @@ const HL_SCHEMA = (() => {
   return {
     type: "object",
     properties: {
-      words: { type: "array", items: { type: "object", properties: { text: str, roman: str, meaning: str, note: str }, required: ["text", "roman", "meaning", "note"] } },
+      words: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { text: str, roman: str, meaning: str, note: str, examples: { type: "array", items: ex } },
+          required: ["text", "roman", "meaning", "note", "examples"],
+        },
+      },
       patterns: {
         type: "array",
         items: {
@@ -225,7 +259,7 @@ function buildHighlightPrompt(lang, transcript, known) {
 The learner: a native Chinese speaker (Traditional Chinese, Taiwan) at roughly elementary level in ${target}. They can get by stringing single words together, but cannot build proper sentences yet${th ? ", and cannot read Thai script, so they rely on the romanization" : ""}. They want everyday spoken ${target}, not textbook or formal language.
 
 Return JSON only, in this shape:
-{"words":[{"text":"","roman":"","meaning":"","note":""}],"patterns":[{"pattern":"","roman":"","meaning":"","explain":"","examples":[{"text":"","roman":"","meaning":""}]}]}
+{"words":[{"text":"","roman":"","meaning":"","note":"","examples":[{"text":"","roman":"","meaning":""}]}],"patterns":[{"pattern":"","roman":"","meaning":"","explain":"","examples":[{"text":"","roman":"","meaning":""}]}]}
 
 "words": 10-20 words or short fixed phrases (fewer if the transcript is short).
 - Choose by usefulness: words this learner will hear and need again and again in daily conversation, at or just above their level. Not the rarest or hardest words.
@@ -233,6 +267,7 @@ Return JSON only, in this shape:
 - Skip names and proper nouns, numbers, pronouns, politeness particles${th ? " (ครับ, ค่ะ, นะ and the like)" : ""}, and everything in the "already known" list.
 - "roman": ${roman}. "meaning": ${meaning}, as used in this video.
 - "note": one short line in Traditional Chinese on how it is used or what it is easily confused with; empty string if there is nothing worth saying.
+- "examples": 2 sentences showing how the word is used. The first is the sentence from the transcript that contains it, quoted as it was said (trim it to the clause around the word if it is very long); the second is a new, short, everyday sentence made with words this learner would know. Each with "roman" and "meaning" as above.
 - Order them by usefulness, most useful first.
 
 "patterns": exactly 3 sentence patterns that native speakers use all the time in speech and that appear in this transcript.
@@ -270,7 +305,11 @@ ${only.avoid.join(", ")}`;
   } catch {
     throw new Error("Gemini 的回覆無法解析，請再試一次");
   }
-  const words = (j.words ?? []).map((w) => ({ ...cleanEx(w), note: oneLine(w.note) })).filter((w) => w.thai);
+  const words = (j.words ?? []).map((w) => ({
+    ...cleanEx(w),
+    note: oneLine(w.note),
+    examples: (w.examples ?? []).map(cleanEx).filter((e) => e.thai),
+  })).filter((w) => w.thai);
   const patterns = (j.patterns ?? []).map((p) => ({
     ...cleanEx({ ...p, text: p.pattern }),
     explain: oneLine(p.explain),
@@ -278,6 +317,50 @@ ${only.avoid.join(", ")}`;
   })).filter((p) => p.thai);
   if (!words.length && !patterns.length) throw new Error("Gemini 沒有挑出任何重點，請再試一次");
   return { words, patterns, model: res.model };
+}
+
+/* ---------- 補例句：舊的本集重點沒有單字例句，加入字卡時再一次補齊 ---------- */
+const EX_SCHEMA = (() => {
+  const str = { type: "string" };
+  const ex = { type: "object", properties: { text: str, roman: str, meaning: str }, required: ["text", "roman", "meaning"] };
+  return {
+    type: "object",
+    properties: { items: { type: "array", items: { type: "object", properties: { i: { type: "integer" }, examples: { type: "array", items: ex } }, required: ["i", "examples"] } } },
+    required: ["items"],
+  };
+})();
+
+// words: [{thai, english}]；cues：這部影片的逐字稿（第一個例句從裡面引用）。回傳同樣順序的例句陣列（失敗的為 []）
+export async function wordExamples({ words, cues, lang, key = getGeminiKey(), model = getGeminiModel(), signal }) {
+  const th = lang === "th";
+  const target = th ? "Thai" : "English";
+  const meaning = th ? "a short English meaning" : "a short meaning in Traditional Chinese (繁體中文)";
+  const roman = th ? "romanization the way Thai people actually pronounce it, with tone diacritics" : "always an empty string";
+  const prompt = `A ${target} learner (Traditional Chinese speaker, elementary level${th ? ", cannot read Thai script" : ""}) is saving these words from a video to flashcards and needs example sentences to understand how each word is used.
+
+For each word return "examples": 2 sentences. The first is the sentence from the transcript below that contains the word, quoted as it was said (trim it to the clause around the word if it is very long; if the word is not in the transcript, write a natural everyday sentence instead). The second is a new, short, everyday sentence made with simple words. Each example has "text" (in ${target}), "roman" (${roman}) and "meaning" (${meaning}).
+
+Return JSON only: {"items":[{"i":0,"examples":[{"text":"","roman":"","meaning":""}]}]}
+No Markdown, no line breaks inside values.
+
+Words:
+${words.map((w, i) => `${i}. ${w.thai}${w.english ? ` (${w.english})` : ""}`).join("\n")}
+
+Transcript:
+${cues.map((c) => c.thai).join("\n")}`;
+  const res = await ask({ key, model, signal, schema: EX_SCHEMA, input: [{ type: "text", text: prompt }] });
+  let j;
+  try {
+    const s = res.text.replace(/```(?:json)?/gi, "").trim();
+    j = JSON.parse(s.slice(s.search(/[[{]/)));
+  } catch {
+    throw new Error("Gemini 的回覆無法解析");
+  }
+  const out = words.map(() => []);
+  for (const it of Array.isArray(j) ? j : j.items ?? []) {
+    if (Number.isInteger(it?.i) && it.i >= 0 && it.i < out.length) out[it.i] = (it.examples ?? []).map(cleanEx).filter((e) => e.thai);
+  }
+  return out;
 }
 
 /* ---------- 找影片：把候選影片的標題翻成中文，並判斷適不適合練日常口語 ---------- */

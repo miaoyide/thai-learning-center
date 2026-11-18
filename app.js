@@ -9,8 +9,8 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot
 import { firebaseConfig } from "./firebase-config.js";
 import { buildCues, cuesToTranscript, extractVideoId } from "./subtitles.js";
 import { mountVideo } from "./video.js";
-import { GEMINI_MODELS, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, transcribeYoutube, extractHighlights, rateVideos } from "./gemini.js";
-import { getYoutubeKey, setYoutubeKey, getSeen, markSeen, findCandidates, queryCount } from "./youtube.js";
+import { GEMINI_MODELS, getGeminiKey, setGeminiKey, getGeminiModel, setGeminiModel, transcribeYoutube, extractHighlights, rateVideos, wordExamples } from "./gemini.js";
+import { getYoutubeKey, setYoutubeKey, getSeen, markSeen, findCandidates, queryCount, getVideoSeconds } from "./youtube.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -1580,13 +1580,27 @@ function openVideo(v, { autoHighlights = false } = {}) {
       auto: autoHighlights,
       wait: hlWaiting.get(v.id), // 背景工作正在替這部影片挑重點：接著等它，不要重複生成
       has: (t) => justAdded.has(termClean(t)) || cards.some((c) => termClean(c.thai) === termClean(t)),
-      add: async (kind, it) => {
-        await addDoc(collection(db, "cards"), {
-          lang, type: kind === "words" ? "word" : "sentence", thai: termClean(it.thai), roman: it.roman, english: it.english,
-          detail: kind === "words" ? it.note || "" : patternDetail(it), tags: v.tags ?? [],
-          createdAt: serverTimestamp(),
-        });
-        justAdded.add(termClean(it.thai));
+      // 加入字卡：list = [[kind, item], ...]。單字的例句只放在字卡說明裡（影片頁只顯示摘要）；
+      // 舊的重點沒有例句時，先一次補齊並存回這部影片，下次就不用再生成
+      addMany: async (list) => {
+        const missing = list.filter(([k, it]) => k === "words" && !it.examples?.length).map(([, it]) => it);
+        if (missing.length && getGeminiKey()) {
+          try {
+            const exs = await wordExamples({ words: missing, cues: v.cues, lang });
+            missing.forEach((it, i) => { if (exs[i]?.length) it.examples = exs[i]; });
+            await updateDoc(doc(db, "videos", v.id), { highlights: v.highlights });
+          } catch (err) {
+            // 補例句失敗不擋加入字卡：先存用法說明，例句之後可以在字卡裡自己補
+          }
+        }
+        for (const [kind, it] of list) {
+          await addDoc(collection(db, "cards"), {
+            lang, type: kind === "words" ? "word" : "sentence", thai: termClean(it.thai), roman: it.roman, english: it.english,
+            detail: exampleDetail(kind === "words" ? it.note : it.explain, it.examples), tags: v.tags ?? [],
+            createdAt: serverTimestamp(),
+          });
+          justAdded.add(termClean(it.thai));
+        }
       },
       // 換一個：這一項已經會了或不需要，請 Gemini 從同一份逐字稿補一個新的
       swap: async (kind, i) => {
@@ -1612,10 +1626,10 @@ function openVideo(v, { autoHighlights = false } = {}) {
     },
   });
 }
-// 句型字卡的說明：用法＋例句（每句獨立一行，沿用字卡說明的 Markdown 慣例）
-const patternDetail = (p) => [
-  p.explain,
-  p.examples?.length ? "### 例句\n" + p.examples.map((e) => `- **${e.thai}**\n  ${e.roman ? `_${e.roman}_\n  ` : ""}${e.english}`).join("\n") : "",
+// 單字／句型字卡的說明：用法＋例句（每句獨立一行，沿用字卡說明的 Markdown 慣例）
+const exampleDetail = (lead, examples) => [
+  lead,
+  examples?.length ? "### 例句\n" + examples.map((e) => `- **${e.thai}**\n  ${e.roman ? `_${e.roman}_\n  ` : ""}${e.english}`).join("\n") : "",
 ].filter(Boolean).join("\n\n");
 function closeVideo() {
   if (unmountVideo) unmountVideo();
@@ -1675,8 +1689,10 @@ $("vGen").onclick = async () => {
   tick();
   $("vGen").textContent = "取消";
   try {
+    // 有 YouTube 金鑰時先查片長，逐字稿停太早才知道要接著補
+    const duration = await getVideoSeconds(videoId);
     const { cues, truncated, lastTime, model } = await transcribeYoutube({
-      videoId, lang, signal: genAbort.signal, onStatus: (s) => { note = s; tick(); },
+      videoId, lang, duration, signal: genAbort.signal, onStatus: (s) => { note = s; tick(); },
     });
     if (!cues.length) return msg(`沒有聽到${L().term}內容，或回覆無法解析`);
     fillVideoCues(cues);
@@ -1848,7 +1864,7 @@ function useFound(c) {
     return $("fGemKey").focus();
   }
   // 交給背景工作去生成，這個視窗不用等：可以關掉去做別的事，或繼續挑下一部
-  addJob({ lang, videoId: c.videoId, title: c.zh || c.title, origTitle: c.zh ? c.title : "" });
+  addJob({ lang, videoId: c.videoId, title: c.zh || c.title, origTitle: c.zh ? c.title : "", seconds: c.seconds || 0 });
   findShown = findShown.filter((x) => x !== c);
   savePool();
   renderFind();
@@ -1869,7 +1885,7 @@ function jobActive(j) { return ["queued", "transcribing", "saving", "highlights"
 const saveJobs = () => {
   try {
     // 已經存檔、只剩挑重點的不用記：影片已經在資料庫裡，重點可以在影片頁補
-    localStorage.setItem(JOB_STORE, JSON.stringify(jobs.filter((j) => !j.docId).map(({ id, lang, videoId, title, origTitle }) => ({ id, lang, videoId, title, origTitle }))));
+    localStorage.setItem(JOB_STORE, JSON.stringify(jobs.filter((j) => !j.docId).map(({ id, lang, videoId, title, origTitle, seconds }) => ({ id, lang, videoId, title, origTitle, seconds }))));
     localStorage.setItem(NEW_STORE, JSON.stringify([...newVideoIds].slice(-50)));
   } catch (e) {}
 };
@@ -1923,7 +1939,9 @@ async function runJob(job) {
   try {
     job.state = "transcribing"; job.t0 = Date.now(); job.note = ""; job.error = "";
     refreshJobs();
-    const { cues } = await transcribeYoutube({ videoId: job.videoId, lang: job.lang, onStatus: (s) => { job.note = s; } });
+    const duration = job.seconds || (await getVideoSeconds(job.videoId));
+    const { cues, truncated, lastTime } = await transcribeYoutube({ videoId: job.videoId, lang: job.lang, duration, onStatus: (s) => { job.note = s; } });
+    job.partial = truncated ? lastTime : "";
     if (!cues.length) throw new Error(`沒有聽到${LANGS[job.lang].term}內容`);
     if (!jobs.includes(job)) return; // 生成期間被移除
     const data = {
@@ -1950,7 +1968,7 @@ async function runJob(job) {
     hlWaiting.delete(added.id);
     jobs = jobs.filter((j) => j !== job);
     refreshJobs();
-    toast(`「${job.title}」準備好了`, job.lang === lang ? { label: "打開", run: () => openVideoById(added.id) } : null);
+    toast(job.partial ? `「${job.title}」準備好了，但逐字稿只到 ${job.partial}，後面要在編輯裡重新生成或手動補` : `「${job.title}」準備好了`, job.lang === lang ? { label: "打開", run: () => openVideoById(added.id) } : null);
   } catch (err) {
     job.state = "failed";
     job.error = String(err.message || err).split("\n")[0];

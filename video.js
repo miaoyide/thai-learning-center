@@ -18,7 +18,7 @@ const LEAD = 0;
 const savedRate = () => { try { return +localStorage.getItem("videoRate"); } catch { return 0; } };
 
 // 在 container 內顯示影片 + 逐句字幕。回傳 destroy()。
-// hl（選填）：本集重點 { canEdit, has(text), add(kind, item), swap(kind, index), generate(onStatus), auto, wait }
+// hl（選填）：本集重點 { canEdit, has(text), addMany([[kind, item], ...]), swap(kind, index), generate(onStatus), auto, wait }
 export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl }) {
   const origin = encodeURIComponent(location.origin);
   container.innerHTML = `
@@ -175,10 +175,11 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
     ${e.roman ? `<div class="roman">${esc(e.roman)}</div>` : ""}
     ${e.english ? `<div class="english">${esc(e.english)}</div>` : ""}`;
   let swapping = ""; // 正在換的那一項，例如 "words:3"
+  const adding = new Set(); // 正在加入字卡的項目（補例句要幾秒，期間不能重複按）
   const addBtn = (it) => (!hl.canEdit ? "" : `<div class="hlbtns">
     ${hl.has(it.thai)
       ? `<button class="icon" disabled title="已在字卡裡">✓</button>`
-      : `<button class="icon" data-act="add" title="加入字卡">${ICON.plus}</button>`}
+      : `<button class="icon" data-act="add" title="加入字卡（說明會附上例句）" ${adding.has(it.thai) ? "disabled" : ""}>${ICON.plus}</button>`}
     <button class="icon" data-act="swap" title="換一個：這個我會了或不需要" ${swapping ? "disabled" : ""}>${ICON.swap}</button>
   </div>`);
   const rowCls = (k, i) => (swapping === `${k}:${i}` ? " busy" : "");
@@ -232,20 +233,25 @@ export function mountVideo(container, video, { esc, ICON, addCard, onBack, hl })
         return genHl();
       }
       if (act === "all") {
-        e.target.closest("button").disabled = true;
-        try {
-          for (const k of ["words", "patterns"]) {
-            for (const it of video.highlights?.[k] ?? []) if (!hl.has(it.thai)) await hl.add(k, it);
-          }
-          hlMsg = "已全部加入字卡";
-        } catch (err) { hlMsg = "加入失敗：" + err.message; }
+        const list = ["words", "patterns"].flatMap((k) => (video.highlights?.[k] ?? []).filter((it) => !hl.has(it.thai) && !adding.has(it.thai)).map((it) => [k, it]));
+        if (!list.length) return;
+        list.forEach(([, it]) => adding.add(it.thai));
+        hlMsg = "加入字卡中…（附上例句）";
+        renderHl();
+        try { await hl.addMany(list); hlMsg = "已全部加入字卡"; } catch (err) { hlMsg = "加入失敗：" + err.message; }
+        list.forEach(([, it]) => adding.delete(it.thai));
         return renderHl();
       }
       const row = e.target.closest(".hl");
       if (!row || e.target.closest(".say")) return; // 發音按鈕只念出來，不跳影片
       const it = video.highlights[row.dataset.k][+row.dataset.i];
       if (act === "add") {
-        try { await hl.add(row.dataset.k, it); hlMsg = ""; } catch (err) { hlMsg = "加入失敗：" + err.message; }
+        if (adding.has(it.thai)) return;
+        adding.add(it.thai);
+        hlMsg = `加入「${it.thai}」中…`;
+        renderHl();
+        try { await hl.addMany([[row.dataset.k, it]]); hlMsg = ""; } catch (err) { hlMsg = "加入失敗：" + err.message; }
+        adding.delete(it.thai);
         return renderHl();
       }
       if (act === "swap") {
